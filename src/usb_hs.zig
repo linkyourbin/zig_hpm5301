@@ -1,6 +1,7 @@
 const hpm = @import("hpm5301.zig");
 
-pub const max_packet: usize = 512;
+pub const usb_max_packet: usize = 512;
+pub const dap_packet: usize = 1024;
 
 const USB_BASE: usize = 0xF300C000;
 
@@ -83,8 +84,8 @@ const vendor_code_ms20: u8 = 0x20;
 var qhd_list: [endpoint_count * 2][qhd_words]u32 align(2048) linksection(".noncacheable") = undefined;
 var qtd_list: [endpoint_count * 2][qtd_words]u32 align(32) linksection(".noncacheable") = undefined;
 
-pub var out_buffer: [max_packet]u8 align(32) linksection(".noncacheable") = undefined;
-pub var in_buffer: [max_packet]u8 align(32) linksection(".noncacheable") = undefined;
+pub var out_buffer: [dap_packet]u8 align(32) linksection(".noncacheable") = undefined;
+pub var in_buffer: [dap_packet]u8 align(32) linksection(".noncacheable") = undefined;
 
 pub const Device = struct {
     configured: bool = false,
@@ -156,7 +157,7 @@ pub const Device = struct {
     pub fn writePacket(self: *Device, data: []const u8) void {
         self.waitConfigured();
         transferIn(1, data);
-        if (data.len == max_packet) transferIn(1, data[0..0]);
+        if (data.len > usb_max_packet and data.len % usb_max_packet == 0) transferIn(1, data[0..0]);
     }
 
     pub fn waitConfigured(self: *Device) void {
@@ -240,8 +241,8 @@ pub const Device = struct {
                 0x09 => {
                     self.configured = (value & 0xff) != 0;
                     if (self.configured) {
-                        openEndpoint(2, false, EP_TYPE_BULK, max_packet);
-                        openEndpoint(1, true, EP_TYPE_BULK, max_packet);
+                        openEndpoint(2, false, EP_TYPE_BULK, usb_max_packet);
+                        openEndpoint(1, true, EP_TYPE_BULK, usb_max_packet);
                     }
                     statusIn();
                 },
@@ -487,7 +488,7 @@ const bos_descriptor = [_]u8{
 const string0 = [_]u8{ 4, 3, 0x09, 0x04 };
 const string1 = utf16String("YBLINK");
 const string2 = utf16String("YBLINK CMSIS-DAP");
-const string3 = utf16String("YBLINK-ZIG-0022");
+const string3 = utf16String("YBLINK-ZIG-0027");
 const string4 = utf16String("YBLINK CMSIS-DAP");
 const string5 = utf16String("YBLINK Auxiliary Interface");
 const string_msft100 = [_]u8{

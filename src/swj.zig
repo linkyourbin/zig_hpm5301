@@ -117,7 +117,7 @@ pub fn Swj(comptime PinsType: type) type {
 
             self.pins.swdioInput();
             self.turnaround();
-            const ack: u8 = @intCast(self.pins.swclkSampleSwdioBits(3));
+            const ack: u8 = self.pins.swclkSampleSwdio3Bits();
 
             switch (ack) {
                 0b001 => {
@@ -195,7 +195,7 @@ pub fn Swj(comptime PinsType: type) type {
             self.pins.swdWriteBits(swd_request, 8);
             self.pins.swdioInput();
             self.turnaround();
-            const ack: u8 = @intCast(self.pins.swclkSampleSwdioBits(3));
+            const ack: u8 = self.pins.swclkSampleSwdio3Bits();
 
             switch (ack) {
                 0b001 => {

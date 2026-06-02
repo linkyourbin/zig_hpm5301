@@ -149,6 +149,32 @@ pub const ProbePins = struct {
         return value;
     }
 
+    pub inline fn swclkSampleSwdio3Bits(self: *ProbePins) u8 {
+        const delay = self.half_period_delay;
+        var value: u8 = 0;
+
+        doClear(port_a, swclk_tck);
+        delayHalfCount(delay);
+        if ((readDi(port_a) & swdio_tms) != 0) value |= 1;
+        doSet(port_a, swclk_tck);
+        delayHalfCount(delay);
+
+        doClear(port_a, swclk_tck);
+        delayHalfCount(delay);
+        if ((readDi(port_a) & swdio_tms) != 0) value |= 2;
+        doSet(port_a, swclk_tck);
+        delayHalfCount(delay);
+
+        doClear(port_a, swclk_tck);
+        delayHalfCount(delay);
+        if ((readDi(port_a) & swdio_tms) != 0) value |= 4;
+        doSet(port_a, swclk_tck);
+        delayHalfCount(delay);
+
+        self.output_a |= swclk_tck;
+        return value;
+    }
+
     pub inline fn tckCycle(self: *ProbePins) void {
         self.swclkCycle();
     }
@@ -246,6 +272,10 @@ pub const LazyProbePins = struct {
 
     pub inline fn swclkSampleSwdioBits(self: *LazyProbePins, count: usize) u32 {
         return self.ensure().swclkSampleSwdioBits(count);
+    }
+
+    pub inline fn swclkSampleSwdio3Bits(self: *LazyProbePins) u8 {
+        return self.ensure().swclkSampleSwdio3Bits();
     }
 
     pub inline fn tckCycle(self: *LazyProbePins) void {
