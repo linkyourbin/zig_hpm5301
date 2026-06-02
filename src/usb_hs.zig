@@ -146,8 +146,11 @@ pub const Device = struct {
     }
 
     pub fn readPacket(self: *Device, buf: []u8) usize {
-        self.waitConfigured();
-        return transfer(2, false, buf);
+        while (true) {
+            self.waitConfigured();
+            const len = transferOutWithControl(self, 2, buf);
+            if (self.configured) return len;
+        }
     }
 
     pub fn writePacket(self: *Device, data: []const u8) void {
@@ -274,6 +277,7 @@ pub const Device = struct {
                 };
                 controlIn(desc[0..@min(length, desc.len)]);
             },
+            15 => controlIn(bos_descriptor[0..@min(length, bos_descriptor.len)]),
             else => stallEp0(),
         }
     }
@@ -384,6 +388,22 @@ fn transfer(ep: usize, in_dir: bool, data: []u8) usize {
     return data.len - @as(usize, @intCast(remaining));
 }
 
+fn transferOutWithControl(device: *Device, ep: usize, data: []u8) usize {
+    const idx = epIndex(ep, false);
+    prepareQtd(idx, data);
+    qhd_list[idx][2] = @intFromPtr(&qtd_list[idx]) & ~@as(u32, 0x1f);
+
+    const bit = @as(u32, 1) << @intCast(ep);
+    regWrite(REG_ENDPTPRIME, bit);
+    while ((regRead(REG_ENDPTCOMPLETE) & bit) == 0) {
+        device.pollSetupAndReset();
+        if (!device.configured) return 0;
+    }
+    regWrite(REG_ENDPTCOMPLETE, bit);
+    const remaining = (qhd_list[idx][3] >> 16) & 0x7fff;
+    return data.len - @as(usize, @intCast(remaining));
+}
+
 fn prepareQtd(idx: usize, data: []u8) void {
     for (&qtd_list[idx]) |*word| word.* = 0;
     const len: u32 = @intCast(data.len);
@@ -440,18 +460,19 @@ fn regModify(offset: usize, f: fn (u32) u32) void {
 
 const zero2 = [_]u8{ 0, 0 };
 const config_value = [_]u8{1};
-const ms_os_20_total_length: u16 = @intCast(ms_os_20_descriptor.len);
+const ms_os_20_total_length: u16 = 66;
 
 const device_descriptor = [_]u8{
-    18, 1, 0x00, 0x02, 0xef, 0x02, 0x01, 64,
-    0x09, 0x12, 0x01, 0x53, 0x09, 0x00, 1, 2, 3, 1,
+    18, 1, 0x10, 0x02, 0xef, 0x02, 0x01, 64,
+    0x09, 0x12, 0x01, 0x53, 0x14, 0x00, 1, 2, 3, 1,
 };
 
 const config_descriptor = [_]u8{
-    9, 2, 32, 0, 1, 1, 0, 0x80, 50,
+    9, 2, 41, 0, 2, 1, 0, 0x80, 50,
     9, 4, 0, 0, 2, 0xff, 0x00, 0x00, 4,
     7, 5, 0x02, 2, 0x00, 0x02, 0,
     7, 5, 0x81, 2, 0x00, 0x02, 0,
+    9, 4, 1, 0, 0, 0xff, 0x00, 0x00, 5,
 };
 
 const bos_descriptor = [_]u8{
@@ -466,8 +487,9 @@ const bos_descriptor = [_]u8{
 const string0 = [_]u8{ 4, 3, 0x09, 0x04 };
 const string1 = utf16String("YBLINK");
 const string2 = utf16String("YBLINK CMSIS-DAP");
-const string3 = utf16String("YBLINK-ZIG-0009");
-const string4 = utf16String("CMSIS-DAP v2 Interface");
+const string3 = utf16String("YBLINK-ZIG-0014");
+const string4 = utf16String("YBLINK CMSIS-DAP");
+const string5 = utf16String("YBLINK Auxiliary Interface");
 const string_msft100 = [_]u8{
     18, 3,
     'M', 0, 'S', 0, 'F', 0, 'T', 0, '1', 0, '0', 0, '0', 0,
@@ -481,6 +503,7 @@ fn stringDescriptor(index: u8) ?[]const u8 {
         2 => string2[0..],
         3 => string3[0..],
         4 => string4[0..],
+        5 => string5[0..],
         0xee => string_msft100[0..],
         else => null,
     };
@@ -498,36 +521,30 @@ fn utf16String(comptime s: []const u8) [2 + s.len * 2]u8 {
 }
 
 const ms_os_20_descriptor = [_]u8{
-    10, 0, 0, 0, 0x00, 0x00, 0x03, 0x06, 182, 0,
-    4, 0, 7, 0,
-    8, 0, 1, 0, 1, 0, 168, 0,
-    8, 0, 2, 0, 0, 0, 160, 0,
+    10, 0, 0, 0, 0x00, 0x00, 0x03, 0x06,
+    lo(ms_os_20_total_length), hi(ms_os_20_total_length),
+    8, 0, 2, 0, 0, 0, 28, 0,
     20, 0, 3, 0,
     'W', 'I', 'N', 'U', 'S', 'B', 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
-    132, 0, 4, 0, 7, 0, 42, 0,
-    'D', 0, 'e', 0, 'v', 0, 'i', 0, 'c', 0, 'e', 0,
-    'I', 0, 'n', 0, 't', 0, 'e', 0, 'r', 0, 'f', 0,
-    'a', 0, 'c', 0, 'e', 0, 'G', 0, 'U', 0, 'I', 0,
-    'D', 0, 's', 0, 0, 0,
-    80, 0,
-    '{', 0,
-    'C', 0, 'D', 0, 'B', 0, '3', 0, 'B', 0, '5', 0, 'A', 0, 'D', 0, '-', 0,
-    '2', 0, '9', 0, '3', 0, 'B', 0, '-', 0,
-    '4', 0, '6', 0, '6', 0, '3', 0, '-', 0,
-    'A', 0, 'A', 0, '3', 0, '6', 0, '-',
-    0, '1', 0, 'A', 0, 'A', 0, 'E', 0, '4', 0, '6', 0, '4', 0, '6', 0, '3', 0,
-    '7', 0, '7', 0, '6', 0,
-    '}', 0, 0, 0, 0, 0,
+    8, 0, 2, 0, 1, 0, 28, 0,
+    20, 0, 3, 0,
+    'W', 'I', 'N', 'U', 'S', 'B', 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
 };
 
 const ms_os_10_compat_id_descriptor = [_]u8{
-    40, 0, 0, 0,
+    64, 0, 0, 0,
     0x00, 0x01,
     0x04, 0x00,
-    1,
+    2,
     0, 0, 0, 0, 0, 0, 0,
     0,
+    0,
+    'W', 'I', 'N', 'U', 'S', 'B', 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0,
+    1,
     0,
     'W', 'I', 'N', 'U', 'S', 'B', 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
@@ -544,4 +561,10 @@ fn hi(value: u16) u8 {
 
 fn le16Bytes(comptime value: u16) [2]u8 {
     return .{ lo(value), hi(value) };
+}
+
+comptime {
+    if (ms_os_20_descriptor.len != ms_os_20_total_length) {
+        @compileError("MS OS 2.0 descriptor length mismatch");
+    }
 }

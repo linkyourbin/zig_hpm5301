@@ -1,19 +1,8 @@
 const hpm = @import("hpm5301.zig");
-const I2c = @import("i2c_hw.zig");
-const Ssd1306 = @import("ssd1306.zig");
 const Usb = @import("usb_hs.zig");
 const FastGpio = @import("fast_gpio.zig");
 const CmsisDap = @import("cmsis_dap.zig");
 
-const AppMode = enum {
-    oled_test,
-    dap_probe,
-};
-
-const APP_MODE: AppMode = .dap_probe;
-
-const STARTUP_DELAY: u32 = 1_000_000;
-const FRAME_DELAY: u32 = 8_000_000;
 const LOG_DELAY: u32 = 500_000;
 
 const APP_LOAD_ADDR: u32 = 0x80003000;
@@ -27,10 +16,6 @@ const LOG_LED = hpm.Led{
         .pad_ctl = hpm.pad_ctl_led,
     },
     .delay_cycles = LOG_DELAY,
-};
-
-const OLED_I2C = I2c.Bus{
-    .dma_enabled = true,
 };
 
 const BootHeader = extern struct {
@@ -113,23 +98,7 @@ export fn _start() callconv(.naked) noreturn {
 
 export fn zig_main() noreturn {
     initRuntimeSections();
-    switch (APP_MODE) {
-        .oled_test => runOledApp(),
-        .dap_probe => runDapProbe(),
-    }
-}
-
-fn runOledApp() noreturn {
-    initBoard();
-    LOG_LED.blink(1);
-
-    _ = hpm.initMaxClock();
-    LOG_LED.blink(2);
-
-    runOledAt(Ssd1306.address_0, 2);
-    runOledAt(Ssd1306.address_1, 3);
-
-    while (true) LOG_LED.blink(5);
+    runDapProbe();
 }
 
 fn runDapProbe() noreturn {
@@ -145,9 +114,9 @@ fn runDapProbe() noreturn {
     usb.waitConfigured();
     LOG_LED.blink(4);
 
-    const pins = FastGpio.ProbePins.init();
-    var probe_swj = FastGpio.ProbeSwj.init(pins);
-    var dap = CmsisDap.Dap(FastGpio.ProbeSwj).init(&probe_swj);
+    const pins = FastGpio.LazyProbePins.init();
+    var probe_swj = FastGpio.LazyProbeSwj.init(pins);
+    var dap = CmsisDap.Dap(FastGpio.LazyProbeSwj).init(&probe_swj);
 
     while (true) {
         usb.pollSetupAndReset();
@@ -180,33 +149,6 @@ fn zeroSection(start: *u8, end_ptr: *u8) void {
     while (@intFromPtr(dst) < end) {
         dst[0] = 0;
         dst += 1;
-    }
-}
-
-fn initBoard() void {
-    hpm.enableGpioClock();
-    LOG_LED.init();
-    LOG_LED.blink(1);
-    OLED_I2C.init();
-    LOG_LED.blink(2);
-    hpm.delayCycles(STARTUP_DELAY);
-}
-
-fn runOledAt(addr: u8, success_blinks: u32) void {
-    const Display = Ssd1306.Display(I2c.Bus);
-    const display = Display{
-        .bus = OLED_I2C,
-        .addr = addr,
-    };
-
-    if (!display.init()) return;
-
-    LOG_LED.blink(success_blinks);
-    display.drawTwoColorTestText();
-
-    while (true) {
-        LOG_LED.blink(1);
-        hpm.delayCycles(FRAME_DELAY);
     }
 }
 

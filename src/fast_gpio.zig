@@ -191,6 +191,86 @@ pub const ProbePins = struct {
 
 pub const ProbeSwj = swj.Swj(ProbePins);
 
+pub const LazyProbePins = struct {
+    pins: ?ProbePins = null,
+    clock_hz: u32 = 1_000_000,
+
+    pub fn init() LazyProbePins {
+        return .{};
+    }
+
+    pub fn setClockHz(self: *LazyProbePins, hz: u32) void {
+        self.clock_hz = hz;
+        if (self.pins) |*pins| pins.setClockHz(hz);
+    }
+
+    pub inline fn swdioOutput(self: *LazyProbePins) void {
+        self.ensure().swdioOutput();
+    }
+
+    pub inline fn swdioInput(self: *LazyProbePins) void {
+        self.ensure().swdioInput();
+    }
+
+    pub inline fn setSwdioTms(self: *LazyProbePins, high: bool) void {
+        self.ensure().setSwdioTms(high);
+    }
+
+    pub inline fn setTdi(self: *LazyProbePins, high: bool) void {
+        self.ensure().setTdi(high);
+    }
+
+    pub inline fn setSwclkTck(self: *LazyProbePins, high: bool) void {
+        self.ensure().setSwclkTck(high);
+    }
+
+    pub inline fn setReset(self: *LazyProbePins, high: bool) void {
+        self.ensure().setReset(high);
+    }
+
+    pub inline fn swclkCycle(self: *LazyProbePins) void {
+        self.ensure().swclkCycle();
+    }
+
+    pub inline fn swclkSampleSwdio(self: *LazyProbePins) bool {
+        return self.ensure().swclkSampleSwdio();
+    }
+
+    pub inline fn swdWriteBitCycle(self: *LazyProbePins, high: bool) void {
+        self.ensure().swdWriteBitCycle(high);
+    }
+
+    pub inline fn swdWriteBits(self: *LazyProbePins, bits_in: u32, count: usize) void {
+        self.ensure().swdWriteBits(bits_in, count);
+    }
+
+    pub inline fn swclkSampleSwdioBits(self: *LazyProbePins, count: usize) u32 {
+        return self.ensure().swclkSampleSwdioBits(count);
+    }
+
+    pub inline fn tckCycle(self: *LazyProbePins) void {
+        self.ensure().tckCycle();
+    }
+
+    pub inline fn tckSampleTdo(self: *LazyProbePins) bool {
+        return self.ensure().tckSampleTdo();
+    }
+
+    pub fn currentPinState(self: *LazyProbePins) u8 {
+        return self.ensure().currentPinState();
+    }
+
+    inline fn ensure(self: *LazyProbePins) *ProbePins {
+        if (self.pins == null) {
+            self.pins = ProbePins.init();
+            self.pins.?.setClockHz(self.clock_hz);
+        }
+        return &self.pins.?;
+    }
+};
+
+pub const LazyProbeSwj = swj.Swj(LazyProbePins);
+
 inline fn delayHalfCount(count: u8) void {
     switch (count) {
         0 => {},

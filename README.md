@@ -12,7 +12,6 @@ HPM5301 FGPIO pins. PA10 is kept as a debug LED during boot.
 - USB: USB0 high-speed device, CMSIS-DAP v2 style bulk endpoints
 - SWD backend: FGPIO bit-banged PA27/PA28
 - Build output: `zig-out/bin/zig_hpm5301_dap`
-- Previous SSD1306/I2C modules remain in `src/` but are not the active app
 
 ## Pin Map
 
@@ -72,7 +71,7 @@ probe-rs info --probe 1209:5301:YBLINK --chip STM32F405RG --protocol swd --speed
 
 ## Source Layout
 
-- `src/main.zig`: boot metadata, runtime section init, active app selection
+- `src/main.zig`: boot metadata, runtime section init, DAP probe app
 - `src/hpm5301.zig`: clock setup, GPIO/FGPIO, USB pin/clock helpers
 - `src/usb_hs.zig`: blocking USB0 high-speed device driver
 - `src/cmsis_dap.zig`: CMSIS-DAP command parser

@@ -19,12 +19,25 @@ const cmd_dap_swj_clock: u8 = 0x11;
 const cmd_dap_swj_sequence: u8 = 0x12;
 const cmd_dap_swd_configure: u8 = 0x13;
 const cmd_dap_swd_sequence: u8 = 0x1d;
+const cmd_dap_queue_commands: u8 = 0x7e;
+const cmd_dap_execute_commands: u8 = 0x7f;
 
 const dap_ok: u8 = 0x00;
 const dap_error: u8 = 0xff;
 
+const dap_transfer_ok: u8 = 1 << 0;
+const dap_transfer_wait: u8 = 1 << 1;
+const dap_transfer_fault: u8 = 1 << 2;
+const dap_transfer_no_ack: u8 = 0x07;
+const dap_transfer_error: u8 = 1 << 3;
+const dap_transfer_mismatch: u8 = 1 << 4;
+
+const transfer_request_apndp: u8 = 1 << 0;
+const transfer_request_rnw: u8 = 1 << 1;
 const transfer_request_value_match: u8 = 1 << 4;
 const transfer_request_match_mask: u8 = 1 << 5;
+const dp_rdbuff_read: u8 = transfer_request_rnw | (1 << 2) | (1 << 3);
+const check_posted_writes = true;
 
 pub fn Dap(comptime SwjType: type) type {
     return struct {
@@ -46,6 +59,7 @@ pub fn Dap(comptime SwjType: type) type {
             response[0] = request[0];
 
             return switch (request[0]) {
+                cmd_dap_queue_commands, cmd_dap_execute_commands => self.executeCommands(request, response),
                 cmd_dap_info => self.dapInfo(request, response),
                 cmd_dap_host_status => fixedStatus(response, 2, dap_ok),
                 cmd_dap_connect => self.connect(request, response),
@@ -74,11 +88,50 @@ pub fn Dap(comptime SwjType: type) type {
                 0x02 => infoString(response, "YBLINK CMSIS-DAP"),
                 0x03 => infoString(response, "YBLINK"),
                 0x04 => infoString(response, "0.1.0-zig"),
+                0x09 => infoString(response, "0.1.0-zig"),
                 0xf0 => infoU8(response, 0x01),
+                0xfb, 0xfc, 0xfd => infoU32(response, 0),
                 0xfe => infoU8(response, packet_count),
                 0xff => infoU16(response, packet_size),
                 else => infoEmpty(response),
             };
+        }
+
+        fn executeCommands(self: *Self, request: []const u8, response: []u8) usize {
+            if (request.len < 2) {
+                response[0] = cmd_dap_execute_commands;
+                response[1] = 0;
+                return 2;
+            }
+
+            const requested = request[1];
+            var input: usize = 2;
+            var output: usize = 2;
+            var executed: u8 = 0;
+            response[0] = cmd_dap_execute_commands;
+
+            var i: u8 = 0;
+            while (i < requested and input < request.len and output < response.len) : (i += 1) {
+                const request_len = commandRequestLen(request[input..]) orelse {
+                    response[output] = dap_error;
+                    output += 1;
+                    input += 1;
+                    executed += 1;
+                    continue;
+                };
+                if (input + request_len > request.len) break;
+
+                var sub_response: [packet_size]u8 = undefined;
+                const response_len = self.process(request[input .. input + request_len], sub_response[0..]);
+                if (output + response_len > response.len) break;
+                for (sub_response[0..response_len], 0..) |byte, n| response[output + n] = byte;
+                input += request_len;
+                output += response_len;
+                executed += 1;
+            }
+
+            response[1] = executed;
+            return output;
         }
 
         fn connect(self: *Self, request: []const u8, response: []u8) usize {
@@ -110,20 +163,29 @@ pub fn Dap(comptime SwjType: type) type {
         }
 
         fn transfer(self: *Self, request: []const u8, response: []u8) usize {
-            if (request.len < 3) return fixedStatus(response, 2, dap_error);
-            const transfer_count = request[2];
+            if (request.len < 3) {
+                response[1] = 0;
+                response[2] = dap_transfer_error;
+                return 3;
+            }
+            if (self.connected_port != .swd) {
+                response[1] = 0;
+                response[2] = 0;
+                return 3;
+            }
+
+            const transfer_count: usize = request[2];
             var req_index: usize = 3;
-            var rsp_index: usize = 4;
+            var rsp_index: usize = 3;
             var completed: u8 = 0;
-            var status: swj_mod.TransferStatus = .ok;
+            var status: u8 = 0;
+            var post_read = false;
+            var check_write = false;
 
-            response[1] = 0;
-            response[2] = 0;
-
-            var i: u8 = 0;
+            var i: usize = 0;
             while (i < transfer_count) : (i += 1) {
                 if (req_index >= request.len) {
-                    status = .protocol_error;
+                    status = dap_transfer_error;
                     break;
                 }
 
@@ -132,77 +194,186 @@ pub fn Dap(comptime SwjType: type) type {
 
                 if ((transfer_request & transfer_request_match_mask) != 0) {
                     if (req_index + 4 > request.len) {
-                        status = .protocol_error;
+                        status = dap_transfer_error;
                         break;
                     }
                     self.match_mask = readLe32(request[req_index .. req_index + 4]);
                     req_index += 4;
+                    status = dap_transfer_ok;
                     completed += 1;
+                    check_write = false;
                     continue;
                 }
 
-                const read = (transfer_request & 0x02) != 0;
-                var write_data: u32 = 0;
-                if (!read) {
-                    if (req_index + 4 > request.len) {
-                        status = .protocol_error;
-                        break;
-                    }
-                    write_data = readLe32(request[req_index .. req_index + 4]);
-                    req_index += 4;
-                }
-
-                var result = self.retryTransfer(transfer_request & 0x0f, write_data);
-                if ((transfer_request & transfer_request_value_match) != 0 and read and result.status == .ok) {
-                    var retry = self.match_retries;
-                    const expected = if (req_index + 4 <= request.len) readLe32(request[req_index .. req_index + 4]) else 0;
-                    if (req_index + 4 <= request.len) req_index += 4;
-                    while (((result.data ^ expected) & self.match_mask) != 0 and retry > 0) {
-                        retry -= 1;
-                        result = self.retryTransfer(transfer_request & 0x0f, 0);
-                        if (result.status != .ok) break;
-                    }
-                    if (((result.data ^ expected) & self.match_mask) != 0 and result.status == .ok) {
-                        result.status = .wait;
-                    }
-                }
-
-                status = result.status;
-                if (status != .ok) break;
-
+                const read = (transfer_request & transfer_request_rnw) != 0;
                 if (read) {
-                    if (rsp_index + 4 > response.len) {
-                        status = .protocol_error;
+                    if (post_read) {
+                        const result = if ((transfer_request & (transfer_request_apndp | transfer_request_value_match)) == transfer_request_apndp)
+                            self.retryTransfer(transfer_request, 0)
+                        else blk: {
+                            post_read = false;
+                            break :blk self.retryTransfer(dp_rdbuff_read, 0);
+                        };
+                        status = transferStatus(result.status);
+                        if (status != dap_transfer_ok) break;
+                        if (rsp_index + 4 > response.len) {
+                            status = dap_transfer_error;
+                            break;
+                        }
+                        writeLe32(response[rsp_index .. rsp_index + 4], result.data);
+                        rsp_index += 4;
+                    }
+
+                    if ((transfer_request & transfer_request_value_match) != 0) {
+                        if (req_index + 4 > request.len) {
+                            status = dap_transfer_error;
+                            break;
+                        }
+                        const expected = readLe32(request[req_index .. req_index + 4]);
+                        req_index += 4;
+
+                        if ((transfer_request & transfer_request_apndp) != 0) {
+                            const result = self.retryTransfer(transfer_request, 0);
+                            status = transferStatus(result.status);
+                            if (status != dap_transfer_ok) break;
+                        }
+
+                        var retry = self.match_retries;
+                        while (true) {
+                            const result = self.retryTransfer(transfer_request, 0);
+                            status = transferStatus(result.status);
+                            if (status != dap_transfer_ok) break;
+                            if ((result.data & self.match_mask) == expected) break;
+                            if (retry == 0) {
+                                status = dap_transfer_mismatch;
+                                break;
+                            }
+                            retry -= 1;
+                        }
+                        if (status != dap_transfer_ok) break;
+                        post_read = false;
+                    } else if ((transfer_request & transfer_request_apndp) != 0) {
+                        if (!post_read) {
+                            const result = self.retryTransfer(transfer_request, 0);
+                            status = transferStatus(result.status);
+                            if (status != dap_transfer_ok) break;
+                            post_read = true;
+                        }
+                    } else {
+                        const result = self.retryTransfer(transfer_request, 0);
+                        status = transferStatus(result.status);
+                        if (status != dap_transfer_ok) break;
+                        if (rsp_index + 4 > response.len) {
+                            status = dap_transfer_error;
+                            break;
+                        }
+                        writeLe32(response[rsp_index .. rsp_index + 4], result.data);
+                        rsp_index += 4;
+                    }
+                    check_write = false;
+                } else {
+                    if (post_read) {
+                        const result = self.retryTransfer(dp_rdbuff_read, 0);
+                        status = transferStatus(result.status);
+                        if (status != dap_transfer_ok) break;
+                        if (rsp_index + 4 > response.len) {
+                            status = dap_transfer_error;
+                            break;
+                        }
+                        writeLe32(response[rsp_index .. rsp_index + 4], result.data);
+                        rsp_index += 4;
+                        post_read = false;
+                    }
+
+                    if (req_index + 4 > request.len) {
+                        status = dap_transfer_error;
                         break;
                     }
-                    writeLe32(response[rsp_index .. rsp_index + 4], result.data);
-                    rsp_index += 4;
+                    const write_data = readLe32(request[req_index .. req_index + 4]);
+                    req_index += 4;
+
+                    if ((transfer_request & transfer_request_match_mask) != 0) {
+                        self.match_mask = write_data;
+                        status = dap_transfer_ok;
+                        check_write = false;
+                    } else {
+                        const result = self.retryTransfer(transfer_request, write_data);
+                        status = transferStatus(result.status);
+                        if (status != dap_transfer_ok) break;
+                        check_write = true;
+                    }
                 }
                 completed += 1;
             }
 
+            if (status == dap_transfer_ok) {
+                if (post_read) {
+                    const result = self.retryTransfer(dp_rdbuff_read, 0);
+                    status = transferStatus(result.status);
+                    if (status == dap_transfer_ok and rsp_index + 4 <= response.len) {
+                        writeLe32(response[rsp_index .. rsp_index + 4], result.data);
+                        rsp_index += 4;
+                    } else if (status == dap_transfer_ok) {
+                        status = dap_transfer_error;
+                    }
+                } else if (check_write and check_posted_writes) {
+                    const result = self.retryTransfer(dp_rdbuff_read, 0);
+                    status = transferStatus(result.status);
+                }
+            }
+
             response[1] = completed;
-            response[2] = status.dapAck();
+            response[2] = status;
             return rsp_index;
         }
 
         fn transferBlock(self: *Self, request: []const u8, response: []u8) usize {
-            if (request.len < 6) return fixedStatus(response, 2, dap_error);
+            if (request.len < 5) {
+                response[1] = 0;
+                response[2] = 0;
+                response[3] = dap_transfer_error;
+                return 4;
+            }
+            if (self.connected_port != .swd) {
+                response[1] = 0;
+                response[2] = 0;
+                response[3] = 0;
+                return 4;
+            }
+
             const count = readLe16(request[2..4]);
             const transfer_request = request[4];
-            const read = (transfer_request & 0x02) != 0;
+            const read = (transfer_request & transfer_request_rnw) != 0;
 
             var completed: usize = 0;
-            var status: swj_mod.TransferStatus = .ok;
-            var rsp_index: usize = 5;
+            var status: u8 = 0;
+            var rsp_index: usize = 4;
 
-            if (read) {
+            if (count == 0) {
+                status = dap_transfer_ok;
+            } else if ((transfer_request & (transfer_request_value_match | transfer_request_match_mask)) != 0) {
+                status = dap_transfer_error;
+            } else if (read) {
+                var request_value = transfer_request;
+                if ((request_value & transfer_request_apndp) != 0) {
+                    const result = self.retryTransfer(request_value, 0);
+                    status = transferStatus(result.status);
+                    if (status != dap_transfer_ok) {
+                        writeLe16(response[1..3], completed);
+                        response[3] = status;
+                        return rsp_index;
+                    }
+                }
+
                 while (completed < count) {
-                    const result = self.retryTransfer(transfer_request & 0x0f, 0);
-                    status = result.status;
-                    if (status != .ok) break;
+                    if (completed + 1 == count and (transfer_request & transfer_request_apndp) != 0) {
+                        request_value = dp_rdbuff_read;
+                    }
+                    const result = self.retryTransfer(request_value, 0);
+                    status = transferStatus(result.status);
+                    if (status != dap_transfer_ok) break;
                     if (rsp_index + 4 > response.len) {
-                        status = .protocol_error;
+                        status = dap_transfer_error;
                         break;
                     }
                     writeLe32(response[rsp_index .. rsp_index + 4], result.data);
@@ -211,16 +382,17 @@ pub fn Dap(comptime SwjType: type) type {
                 }
             } else {
                 const payload = request[5..];
-                const result = self.swj.swdWriteBlock(transfer_request & 0x0f, payload, count, self.wait_retries);
-                status = result.status;
+                const result = self.swj.swdWriteBlock(transfer_request, payload, count, self.wait_retries);
+                status = transferStatus(result.status);
                 completed = result.done;
-                rsp_index = 5;
+                if (status == dap_transfer_ok and check_posted_writes) {
+                    const check = self.retryTransfer(dp_rdbuff_read, 0);
+                    status = transferStatus(check.status);
+                }
             }
 
-            response[1] = @intCast(completed & 0xff);
-            response[2] = @intCast((completed >> 8) & 0xff);
-            response[3] = @intCast((completed >> 16) & 0xff);
-            response[4] = status.dapAck();
+            writeLe16(response[1..3], completed);
+            response[3] = status;
             return rsp_index;
         }
 
@@ -281,10 +453,11 @@ pub fn Dap(comptime SwjType: type) type {
         }
 
         fn swdSequence(self: *Self, request: []const u8, response: []u8) usize {
-            if (request.len < 2) return fixedStatus(response, 2, dap_error);
+            if (self.connected_port != .swd or request.len < 2) return fixedStatus(response, 2, dap_error);
+            response[1] = dap_ok;
             const sequence_count = request[1];
             var req_index: usize = 2;
-            var rsp_index: usize = 1;
+            var rsp_index: usize = 2;
             var seq: u8 = 0;
             while (seq < sequence_count) : (seq += 1) {
                 if (req_index >= request.len) return fixedStatus(response, 2, dap_error);
@@ -308,7 +481,7 @@ pub fn Dap(comptime SwjType: type) type {
         fn retryTransfer(self: *Self, request: u8, write_data: u32) swj_mod.TransferResult {
             var retry = self.wait_retries;
             while (true) {
-                const result = self.swj.swdTransfer(request, write_data);
+                const result = self.swj.swdTransfer(request & 0x0f, write_data);
                 if (result.status != .wait or retry == 0) return result;
                 retry -= 1;
             }
@@ -339,6 +512,12 @@ fn infoU16(response: []u8, value: usize) usize {
     return 4;
 }
 
+fn infoU32(response: []u8, value: u32) usize {
+    response[1] = 4;
+    writeLe32(response[2..6], value);
+    return 6;
+}
+
 fn infoString(response: []u8, value: []const u8) usize {
     const count = if (value.len + 1 > response.len - 2) response.len - 2 else value.len + 1;
     response[1] = @intCast(count);
@@ -364,6 +543,100 @@ fn writeLe32(out: []u8, value: u32) void {
     out[1] = @intCast((value >> 8) & 0xff);
     out[2] = @intCast((value >> 16) & 0xff);
     out[3] = @intCast((value >> 24) & 0xff);
+}
+
+fn writeLe16(out: []u8, value: usize) void {
+    out[0] = @intCast(value & 0xff);
+    out[1] = @intCast((value >> 8) & 0xff);
+}
+
+fn transferStatus(status: swj_mod.TransferStatus) u8 {
+    return switch (status) {
+        .ok => dap_transfer_ok,
+        .wait => dap_transfer_wait,
+        .fault => dap_transfer_fault,
+        .no_ack => dap_transfer_no_ack,
+        .protocol_error, .parity_error => dap_transfer_error,
+    };
+}
+
+fn commandRequestLen(request: []const u8) ?usize {
+    if (request.len == 0) return null;
+    return switch (request[0]) {
+        cmd_dap_info => if (request.len >= 2) 2 else null,
+        cmd_dap_host_status => if (request.len >= 3) 3 else null,
+        cmd_dap_connect => if (request.len >= 2) 2 else null,
+        cmd_dap_disconnect, cmd_dap_transfer_abort, cmd_dap_reset_target => 1,
+        cmd_dap_transfer_configure => if (request.len >= 6) 6 else null,
+        cmd_dap_swj_clock => if (request.len >= 5) 5 else null,
+        cmd_dap_swj_pins => if (request.len >= 7) 7 else null,
+        cmd_dap_swd_configure => if (request.len >= 2) 2 else null,
+        cmd_dap_delay => if (request.len >= 3) 3 else null,
+        cmd_dap_write_abort => if (request.len >= 6) 6 else null,
+        cmd_dap_swj_sequence => swjSequenceRequestLen(request),
+        cmd_dap_swd_sequence => swdSequenceRequestLen(request),
+        cmd_dap_transfer => transferRequestLen(request),
+        cmd_dap_transfer_block => transferBlockRequestLen(request),
+        cmd_dap_queue_commands, cmd_dap_execute_commands => null,
+        else => 1,
+    };
+}
+
+fn swjSequenceRequestLen(request: []const u8) ?usize {
+    if (request.len < 2) return null;
+    const bits: usize = if (request[1] == 0) 256 else request[1];
+    const bytes = (bits + 7) / 8;
+    return if (request.len >= 2 + bytes) 2 + bytes else null;
+}
+
+fn swdSequenceRequestLen(request: []const u8) ?usize {
+    if (request.len < 2) return null;
+    const sequence_count = request[1];
+    var input: usize = 2;
+    var seq: u8 = 0;
+    while (seq < sequence_count) : (seq += 1) {
+        if (input >= request.len) return null;
+        const info = request[input];
+        input += 1;
+        const bits: usize = if ((info & 0x3f) == 0) 64 else (info & 0x3f);
+        const bytes = (bits + 7) / 8;
+        if ((info & 0x80) == 0) {
+            if (input + bytes > request.len) return null;
+            input += bytes;
+        }
+    }
+    return input;
+}
+
+fn transferRequestLen(request: []const u8) ?usize {
+    if (request.len < 3) return null;
+    const count = request[2];
+    var input: usize = 3;
+    var i: u8 = 0;
+    while (i < count) : (i += 1) {
+        if (input >= request.len) return null;
+        const dap_request = request[input];
+        input += 1;
+        if ((dap_request & transfer_request_rnw) != 0) {
+            if ((dap_request & transfer_request_value_match) != 0) {
+                if (input + 4 > request.len) return null;
+                input += 4;
+            }
+        } else {
+            if (input + 4 > request.len) return null;
+            input += 4;
+        }
+    }
+    return input;
+}
+
+fn transferBlockRequestLen(request: []const u8) ?usize {
+    if (request.len < 5) return null;
+    const count: usize = readLe16(request[2..4]);
+    const dap_request = request[4];
+    if ((dap_request & transfer_request_rnw) != 0) return 5;
+    const len = 5 + count * 4;
+    return if (request.len >= len) len else null;
 }
 
 fn spinDelay(cycles: u32) void {
