@@ -134,6 +134,31 @@ pub const ProbePins = struct {
         self.output_a = output;
     }
 
+    pub inline fn swdWriteDataBits(self: *ProbePins, bits_in: u32, count: usize) void {
+        const delay = self.write_half_period_delay;
+        if (delay != 1) {
+            self.swdWriteBits(bits_in, count);
+            return;
+        }
+
+        var bits = bits_in;
+        var output = self.output_a;
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            if ((bits & 1) != 0) {
+                output = (output | swdio_tms) & ~swclk_tck;
+            } else {
+                output &= ~(swdio_tms | swclk_tck);
+            }
+            writeDo(port_a, output);
+            delayHalfCount(delay);
+            output |= swclk_tck;
+            doSet(port_a, swclk_tck);
+            bits >>= 1;
+        }
+        self.output_a = output;
+    }
+
     pub inline fn swclkSampleSwdioBits(self: *ProbePins, count: usize) u32 {
         const delay = self.half_period_delay;
         var value: u32 = 0;
@@ -199,6 +224,144 @@ pub const ProbePins = struct {
         if ((di_a & tdo) != 0) pins |= 0x08;
         if ((di_b & nreset) != 0) pins |= 0x80;
         return pins;
+    }
+
+    pub inline fn swdWriteBlockFast(self: *ProbePins, swd_request: u8, data: []const u8, count: usize, wait_retries: usize) swj.WriteBlockResult {
+        self.swdioOutput();
+        var done: usize = 0;
+        var input: usize = 0;
+
+        while (done < count) {
+            if (input + 4 > data.len) return .{ .status = .protocol_error, .done = done };
+            const write_data = readLe32(data[input .. input + 4]);
+            const parity: u32 = if (swj.oddParity(write_data)) 1 else 0;
+            var retry = wait_retries;
+
+            while (true) {
+                const ack = self.swdWriteRequestReadAck(swd_request);
+                switch (ack) {
+                    0b001 => {
+                        self.swclkCycle();
+                        self.swdioOutput();
+                        self.swdWriteBits(write_data, 32);
+                        self.swdWriteBits(parity, 1);
+                        self.setSwdioTms(true);
+                        break;
+                    },
+                    0b010 => {
+                        self.swclkCycle();
+                        self.swdioOutput();
+                        self.setSwdioTms(true);
+                        if (retry == 0) return .{ .status = .wait, .done = done };
+                        retry -= 1;
+                    },
+                    0b100 => {
+                        self.swclkCycle();
+                        self.swdioOutput();
+                        self.setSwdioTms(true);
+                        return .{ .status = .fault, .done = done };
+                    },
+                    0b111 => {
+                        self.finishProtocolErrorFast();
+                        return .{ .status = .no_ack, .done = done };
+                    },
+                    else => {
+                        self.finishProtocolErrorFast();
+                        return .{ .status = .protocol_error, .done = done };
+                    },
+                }
+            }
+
+            input += 4;
+            done += 1;
+        }
+
+        return .{ .status = .ok, .done = done };
+    }
+
+    pub inline fn swdWriteTransferFast(self: *ProbePins, swd_request: u8, write_data: u32) swj.TransferStatus {
+        self.swdioOutput();
+        const ack = self.swdWriteRequestReadAck(swd_request);
+        switch (ack) {
+            0b001 => {
+                self.swclkCycle();
+                self.swdioOutput();
+                self.swdWriteBits(write_data, 32);
+                self.swdWriteBits(if (swj.oddParity(write_data)) 1 else 0, 1);
+                self.setSwdioTms(true);
+                return .ok;
+            },
+            0b010 => {
+                self.swclkCycle();
+                self.swdioOutput();
+                self.setSwdioTms(true);
+                return .wait;
+            },
+            0b100 => {
+                self.swclkCycle();
+                self.swdioOutput();
+                self.setSwdioTms(true);
+                return .fault;
+            },
+            0b111 => {
+                self.finishProtocolErrorFast();
+                return .no_ack;
+            },
+            else => {
+                self.finishProtocolErrorFast();
+                return .protocol_error;
+            },
+        }
+    }
+
+    pub inline fn swdReadTransferFast(self: *ProbePins, swd_request: u8) swj.TransferResult {
+        self.swdioOutput();
+        const ack = self.swdWriteRequestReadAck(swd_request);
+        switch (ack) {
+            0b001 => {
+                const data = self.swclkSampleSwdioBits(32);
+                const parity = self.swclkSampleSwdio();
+                self.swclkCycle();
+                self.swdioOutput();
+                self.setSwdioTms(true);
+                if (parity == swj.oddParity(data)) return .{ .status = .ok, .data = data };
+                return .{ .status = .parity_error, .data = data };
+            },
+            0b010 => {
+                self.swclkCycle();
+                self.swdioOutput();
+                self.setSwdioTms(true);
+                return .{ .status = .wait };
+            },
+            0b100 => {
+                self.swclkCycle();
+                self.swdioOutput();
+                self.setSwdioTms(true);
+                return .{ .status = .fault };
+            },
+            0b111 => {
+                self.finishProtocolErrorFast();
+                return .{ .status = .no_ack };
+            },
+            else => {
+                self.finishProtocolErrorFast();
+                return .{ .status = .protocol_error };
+            },
+        }
+    }
+
+    inline fn swdWriteRequestReadAck(self: *ProbePins, swd_request: u8) u8 {
+        self.swdWriteBits(swd_request, 8);
+        self.swdioInput();
+        self.swclkCycle();
+        return self.swclkSampleSwdio3Bits();
+    }
+
+    inline fn finishProtocolErrorFast(self: *ProbePins) void {
+        self.swdioInput();
+        _ = self.swclkSampleSwdioBits(34);
+        self.swdioOutput();
+        self.setSwdioTms(true);
     }
 
     inline fn writeALevel(self: *ProbePins, mask: u32, high: bool) void {
@@ -270,6 +433,10 @@ pub const LazyProbePins = struct {
         self.ensure().swdWriteBits(bits_in, count);
     }
 
+    pub inline fn swdWriteDataBits(self: *LazyProbePins, bits_in: u32, count: usize) void {
+        self.ensure().swdWriteDataBits(bits_in, count);
+    }
+
     pub inline fn swclkSampleSwdioBits(self: *LazyProbePins, count: usize) u32 {
         return self.ensure().swclkSampleSwdioBits(count);
     }
@@ -288,6 +455,18 @@ pub const LazyProbePins = struct {
 
     pub fn currentPinState(self: *LazyProbePins) u8 {
         return self.ensure().currentPinState();
+    }
+
+    pub inline fn swdWriteBlockFast(self: *LazyProbePins, swd_request: u8, data: []const u8, count: usize, wait_retries: usize) swj.WriteBlockResult {
+        return self.ensure().swdWriteBlockFast(swd_request, data, count, wait_retries);
+    }
+
+    pub inline fn swdWriteTransferFast(self: *LazyProbePins, swd_request: u8, write_data: u32) swj.TransferStatus {
+        return self.ensure().swdWriteTransferFast(swd_request, write_data);
+    }
+
+    pub inline fn swdReadTransferFast(self: *LazyProbePins, swd_request: u8) swj.TransferResult {
+        return self.ensure().swdReadTransferFast(swd_request);
     }
 
     inline fn ensure(self: *LazyProbePins) *ProbePins {
@@ -342,6 +521,13 @@ fn swdDelayForHz(hz: u32) u8 {
 
 fn swdWriteDelayForHz(hz: u32) u8 {
     return if (hz > 8_000_000) 1 else swdDelayForHz(hz);
+}
+
+fn readLe32(bytes: []const u8) u32 {
+    return @as(u32, bytes[0]) |
+        (@as(u32, bytes[1]) << 8) |
+        (@as(u32, bytes[2]) << 16) |
+        (@as(u32, bytes[3]) << 24);
 }
 
 inline fn readDi(port: usize) u32 {

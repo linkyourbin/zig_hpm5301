@@ -166,6 +166,10 @@ pub fn Swj(comptime PinsType: type) type {
         }
 
         pub fn swdWriteBlock(self: *Self, request: u8, data: []const u8, count: usize, wait_retries: usize) WriteBlockResult {
+            if (self.canUseFastPath()) {
+                return self.pins.swdWriteBlockFast(makeSwdRequest(request), data, count, wait_retries);
+            }
+
             const swd_request = makeSwdRequest(request);
             var done: usize = 0;
             var input: usize = 0;
@@ -282,6 +286,10 @@ pub fn Swj(comptime PinsType: type) type {
             _ = self.pins.swclkSampleSwdioBits(@as(usize, self.turnaround_cycles) + 33);
             self.pins.swdioOutput();
             self.idle();
+        }
+
+        inline fn canUseFastPath(self: *Self) bool {
+            return self.turnaround_cycles == 1 and self.idle_cycles == 0 and !self.data_phase_on_wait_fault;
         }
     };
 }
