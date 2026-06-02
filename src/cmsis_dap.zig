@@ -69,7 +69,7 @@ pub fn Dap(comptime SwjType: type) type {
                 cmd_dap_transfer_block => self.transferBlock(request, response),
                 cmd_dap_transfer_abort => fixedStatus(response, 2, dap_ok),
                 cmd_dap_write_abort => self.writeAbort(request, response),
-                cmd_dap_delay => fixedStatus(response, 2, dap_ok),
+                cmd_dap_delay => self.dapDelay(request, response),
                 cmd_dap_reset_target => self.resetTarget(response),
                 cmd_dap_swj_pins => self.swjPins(request, response),
                 cmd_dap_swj_clock => self.swjClock(request, response),
@@ -404,23 +404,37 @@ pub fn Dap(comptime SwjType: type) type {
             return fixedStatus(response, 2, dap_ok);
         }
 
+        fn dapDelay(_: *Self, request: []const u8, response: []u8) usize {
+            if (request.len < 3) return fixedStatus(response, 2, dap_error);
+            delayMicros(readLe16(request[1..3]));
+            return fixedStatus(response, 2, dap_ok);
+        }
+
         fn resetTarget(self: *Self, response: []u8) usize {
-            _ = self.swj.setPins(0x00, 0x80);
-            spinDelay(7_200_000);
-            _ = self.swj.setPins(0x80, 0x80);
-            spinDelay(7_200_000);
+            const low_state = self.swj.setPins(0x00, 0x80);
+            delayMicros(20_000);
+            const high_state = self.swj.setPins(0x80, 0x80);
+            delayMicros(20_000);
+            const reset_changed = ((low_state & 0x80) == 0) and ((high_state & 0x80) != 0);
             response[1] = dap_ok;
-            response[2] = 1;
+            response[2] = if (reset_changed) 1 else 0;
             return 3;
         }
 
         fn swjPins(self: *Self, request: []const u8, response: []u8) usize {
             if (request.len < 7) return fixedStatus(response, 2, dap_error);
             const values = request[1];
-            const select = request[2];
+            const select = request[2] & ~@as(u8, 0x20);
             const wait_us = readLe32(request[3..7]);
-            const state = self.swj.setPins(values, select);
-            if (wait_us != 0) spinDelay(wait_us * 72);
+            var state = self.swj.setPins(values, select);
+            if (wait_us != 0) {
+                const loops = @min(wait_us, 3_000_000) * 72;
+                var i: u32 = 0;
+                while (i < loops and ((state ^ values) & select) != 0) : (i += 1) {
+                    if ((i & 0xff) == 0) state = self.swj.pinState();
+                    asm volatile ("nop");
+                }
+            }
             response[1] = state;
             return 2;
         }
@@ -558,6 +572,10 @@ fn transferStatus(status: swj_mod.TransferStatus) u8 {
         .no_ack => dap_transfer_no_ack,
         .protocol_error, .parity_error => dap_transfer_error,
     };
+}
+
+fn delayMicros(us_in: u32) void {
+    spinDelay(@min(us_in, 3_000_000) * 72);
 }
 
 fn commandRequestLen(request: []const u8) ?usize {

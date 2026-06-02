@@ -72,19 +72,6 @@ export const boot_header: BootHeader linksection(".boot_header") = .{
     .sig_block_offset = 0,
 };
 
-export const fw_info: FwInfo linksection(".fw_info_table") = .{
-    .offset = APP_OFFSET,
-    .size = 0,
-    .flags = 0,
-    .reserved0 = 0,
-    .load_addr = APP_LOAD_ADDR,
-    .reserved1 = 0,
-    .entry_point = APP_LOAD_ADDR,
-    .reserved2 = 0,
-    .hash = [_]u8{0} ** 64,
-    .iv = [_]u8{0} ** 32,
-};
-
 export fn _start() callconv(.naked) noreturn {
     asm volatile (
         \\ .option push
@@ -136,6 +123,13 @@ fn copySection(src_start: *u8, dst_start: *u8, dst_end: *u8) void {
     var src: [*]u8 = @ptrCast(src_start);
     var dst: [*]u8 = @ptrCast(dst_start);
     const end = @intFromPtr(dst_end);
+    while (@intFromPtr(dst) + 4 <= end) {
+        const src_word: *u32 = @ptrCast(@alignCast(src));
+        const dst_word: *u32 = @ptrCast(@alignCast(dst));
+        dst_word.* = src_word.*;
+        dst += 4;
+        src += 4;
+    }
     while (@intFromPtr(dst) < end) {
         dst[0] = src[0];
         dst += 1;
@@ -146,6 +140,11 @@ fn copySection(src_start: *u8, dst_start: *u8, dst_end: *u8) void {
 fn zeroSection(start: *u8, end_ptr: *u8) void {
     var dst: [*]u8 = @ptrCast(start);
     const end = @intFromPtr(end_ptr);
+    while (@intFromPtr(dst) + 4 <= end) {
+        const dst_word: *u32 = @ptrCast(@alignCast(dst));
+        dst_word.* = 0;
+        dst += 4;
+    }
     while (@intFromPtr(dst) < end) {
         dst[0] = 0;
         dst += 1;

@@ -1,7 +1,7 @@
 ENTRY(_start)
 
 FLASH_SIZE = 1M;
-STACK_SIZE = 0x400;
+STACK_SIZE = 0x1000;
 
 MEMORY
 {
@@ -24,7 +24,16 @@ SECTIONS
     .boot_header __boot_header_load_addr__ : {
         __boot_header_start__ = .;
         KEEP(*(.boot_header))
-        KEEP(*(.fw_info_table))
+        LONG(__app_offset__)      /* image offset from boot header */
+        LONG(__fw_size__)         /* actual image size */
+        LONG(0)                   /* flags */
+        LONG(0)                   /* reserved0 */
+        LONG(__app_load_addr__)   /* load_addr */
+        LONG(0)                   /* reserved1 */
+        LONG(__app_load_addr__)   /* entry_point */
+        LONG(0)                   /* reserved2 */
+        . += 64;                  /* hash */
+        . += 32;                  /* iv */
         __boot_header_end__ = .;
     } > FLASH
 
