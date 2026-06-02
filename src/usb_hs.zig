@@ -460,11 +460,11 @@ fn regModify(offset: usize, f: fn (u32) u32) void {
 
 const zero2 = [_]u8{ 0, 0 };
 const config_value = [_]u8{1};
-const ms_os_20_total_length: u16 = 66;
+const ms_os_20_total_length: u16 = 198;
 
 const device_descriptor = [_]u8{
     18, 1, 0x10, 0x02, 0xef, 0x02, 0x01, 64,
-    0x09, 0x12, 0x01, 0x53, 0x14, 0x00, 1, 2, 3, 1,
+    0x09, 0x12, 0x01, 0x53, 0x15, 0x00, 1, 2, 3, 1,
 };
 
 const config_descriptor = [_]u8{
@@ -487,7 +487,7 @@ const bos_descriptor = [_]u8{
 const string0 = [_]u8{ 4, 3, 0x09, 0x04 };
 const string1 = utf16String("YBLINK");
 const string2 = utf16String("YBLINK CMSIS-DAP");
-const string3 = utf16String("YBLINK-ZIG-0014");
+const string3 = utf16String("YBLINK-ZIG-0015");
 const string4 = utf16String("YBLINK CMSIS-DAP");
 const string5 = utf16String("YBLINK Auxiliary Interface");
 const string_msft100 = [_]u8{
@@ -523,10 +523,24 @@ fn utf16String(comptime s: []const u8) [2 + s.len * 2]u8 {
 const ms_os_20_descriptor = [_]u8{
     10, 0, 0, 0, 0x00, 0x00, 0x03, 0x06,
     lo(ms_os_20_total_length), hi(ms_os_20_total_length),
-    8, 0, 2, 0, 0, 0, 28, 0,
+    8, 0, 2, 0, 0, 0, 160, 0,
     20, 0, 3, 0,
     'W', 'I', 'N', 'U', 'S', 'B', 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
+    132, 0, 4, 0, 7, 0, 42, 0,
+    'D', 0, 'e', 0, 'v', 0, 'i', 0, 'c', 0, 'e', 0,
+    'I', 0, 'n', 0, 't', 0, 'e', 0, 'r', 0, 'f', 0,
+    'a', 0, 'c', 0, 'e', 0, 'G', 0, 'U', 0, 'I', 0,
+    'D', 0, 's', 0, 0, 0,
+    80, 0,
+    '{', 0,
+    'C', 0, 'D', 0, 'B', 0, '3', 0, 'B', 0, '5', 0, 'A', 0, 'D', 0, '-', 0,
+    '2', 0, '9', 0, '3', 0, 'B', 0, '-', 0,
+    '4', 0, '6', 0, '6', 0, '3', 0, '-', 0,
+    'A', 0, 'A', 0, '3', 0, '6', 0, '-',
+    0, '1', 0, 'A', 0, 'A', 0, 'E', 0, '4', 0, '6', 0, '4', 0, '6', 0, '3', 0,
+    '7', 0, '7', 0, '6', 0,
+    '}', 0, 0, 0, 0, 0,
     8, 0, 2, 0, 1, 0, 28, 0,
     20, 0, 3, 0,
     'W', 'I', 'N', 'U', 'S', 'B', 0, 0,
