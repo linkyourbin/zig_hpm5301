@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "ssd1306_i2c_test",
+        .name = "zig_hpm5301_dap",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
@@ -29,10 +29,10 @@ pub fn build(b: *std.Build) void {
     exe.setLinkerScript(b.path("src/hpm5301_flash_xip.ld"));
 
     const bin = exe.addObjCopy(.{
-        .basename = "ssd1306_i2c_test.bin",
+        .basename = "zig_hpm5301_dap.bin",
         .format = .bin,
     });
 
     b.installArtifact(exe);
-    b.getInstallStep().dependOn(&b.addInstallBinFile(bin.getOutput(), "ssd1306_i2c_test.bin").step);
+    b.getInstallStep().dependOn(&b.addInstallBinFile(bin.getOutput(), "zig_hpm5301_dap.bin").step);
 }

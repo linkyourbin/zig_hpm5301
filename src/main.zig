@@ -1,6 +1,16 @@
 const hpm = @import("hpm5301.zig");
 const I2c = @import("i2c_hw.zig");
 const Ssd1306 = @import("ssd1306.zig");
+const Usb = @import("usb_hs.zig");
+const FastGpio = @import("fast_gpio.zig");
+const CmsisDap = @import("cmsis_dap.zig");
+
+const AppMode = enum {
+    oled_test,
+    dap_probe,
+};
+
+const APP_MODE: AppMode = .dap_probe;
 
 const STARTUP_DELAY: u32 = 1_000_000;
 const FRAME_DELAY: u32 = 8_000_000;
@@ -49,6 +59,14 @@ const FwInfo = extern struct {
 };
 
 extern var __stack_top__: u8;
+extern var __fast_load_start__: u8;
+extern var __fast_start__: u8;
+extern var __fast_end__: u8;
+extern var __data_load_start__: u8;
+extern var __data_start__: u8;
+extern var __data_end__: u8;
+extern var __bss_start__: u8;
+extern var __bss_end__: u8;
 
 export const nor_cfg_option: [4]u32 linksection(".nor_cfg_option") = .{
     0xfcf90002,
@@ -94,6 +112,14 @@ export fn _start() callconv(.naked) noreturn {
 }
 
 export fn zig_main() noreturn {
+    initRuntimeSections();
+    switch (APP_MODE) {
+        .oled_test => runOledApp(),
+        .dap_probe => runDapProbe(),
+    }
+}
+
+fn runOledApp() noreturn {
     initBoard();
     LOG_LED.blink(1);
 
@@ -103,8 +129,57 @@ export fn zig_main() noreturn {
     runOledAt(Ssd1306.address_0, 2);
     runOledAt(Ssd1306.address_1, 3);
 
+    while (true) LOG_LED.blink(5);
+}
+
+fn runDapProbe() noreturn {
+    hpm.enableGpioClock();
+    LOG_LED.init();
+    LOG_LED.blink(1);
+    _ = hpm.initMaxClock();
+    LOG_LED.blink(2);
+
+    var usb = Usb.Device{};
+    usb.init();
+    LOG_LED.blink(3);
+    usb.waitConfigured();
+    LOG_LED.blink(4);
+
+    const pins = FastGpio.ProbePins.init();
+    var probe_swj = FastGpio.ProbeSwj.init(pins);
+    var dap = CmsisDap.Dap(FastGpio.ProbeSwj).init(&probe_swj);
+
     while (true) {
-        LOG_LED.blink(5);
+        usb.pollSetupAndReset();
+        const request_len = usb.readPacket(Usb.out_buffer[0..]);
+        const response_len = dap.process(Usb.out_buffer[0..request_len], Usb.in_buffer[0..]);
+        usb.writePacket(Usb.in_buffer[0..response_len]);
+    }
+}
+
+fn initRuntimeSections() void {
+    copySection(&__fast_load_start__, &__fast_start__, &__fast_end__);
+    copySection(&__data_load_start__, &__data_start__, &__data_end__);
+    zeroSection(&__bss_start__, &__bss_end__);
+}
+
+fn copySection(src_start: *u8, dst_start: *u8, dst_end: *u8) void {
+    var src: [*]u8 = @ptrCast(src_start);
+    var dst: [*]u8 = @ptrCast(dst_start);
+    const end = @intFromPtr(dst_end);
+    while (@intFromPtr(dst) < end) {
+        dst[0] = src[0];
+        dst += 1;
+        src += 1;
+    }
+}
+
+fn zeroSection(start: *u8, end_ptr: *u8) void {
+    var dst: [*]u8 = @ptrCast(start);
+    const end = @intFromPtr(end_ptr);
+    while (@intFromPtr(dst) < end) {
+        dst[0] = 0;
+        dst += 1;
     }
 }
 

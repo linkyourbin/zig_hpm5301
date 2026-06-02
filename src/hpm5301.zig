@@ -6,6 +6,8 @@ pub const pad_ctl_i2c_hw: u32 = pad_ctl_i2c_gpio;
 pub const pad_ctl_led: u32 = (1 << 17) | (1 << 18) | (1 << 24);
 
 const GPIO0_BASE: usize = 0xF00D0000;
+const FGPIO_BASE: usize = 0x000C0000;
+const GPIOM_BASE: usize = 0xF00D8000;
 const IOC_BASE: usize = 0xF4040000;
 const SYSCTL_BASE: usize = 0xF4000000;
 const PLLCTLV2_BASE: usize = 0xF40C0000;
@@ -15,6 +17,7 @@ const SYSCTL_RESOURCE_LINKABLE_START = 256;
 const SYSCTL_RESOURCE_I2C2 = 275;
 const SYSCTL_RESOURCE_GPIO = 305;
 const SYSCTL_RESOURCE_HDMA = 306;
+const SYSCTL_RESOURCE_USB0 = 308;
 const SYSCTL_RESOURCE_GPIO_OFFSET = SYSCTL_RESOURCE_GPIO - SYSCTL_RESOURCE_LINKABLE_START;
 const SYSCTL_RESOURCE_CLK_TOP_I2C2 = 80;
 const SYSCTL_CLOCK_CLK_TOP_I2C2 = 15;
@@ -22,6 +25,11 @@ const SYSCTL_CLOCK_CLK_TOP_I2C2 = 15;
 const IOC_PAD_FUNC_CTL_LOOP_BACK_MASK: u32 = 1 << 16;
 const IOC_PB08_FUNC_CTL_I2C2_SCL: u32 = 4;
 const IOC_PB09_FUNC_CTL_I2C2_SDA: u32 = 4;
+const IOC_FUNC_USB0: u32 = 25;
+const IOC_PAD_USB_ANALOG: u32 = 1 << 31;
+const IOC_PAD_FUNC_CTL_ANALOG_MASK: u32 = 1 << 31;
+const GPIOM_SELECT_FGPIO: u32 = 2;
+const GPIOM_HIDE: u32 = 1 << 4;
 
 pub const GpioPin = struct {
     pad: usize,
@@ -153,6 +161,31 @@ pub fn enableHdmaClock() void {
     enablePeripheralClock(SYSCTL_RESOURCE_HDMA);
 }
 
+pub fn enableUsb0Clock() void {
+    enablePeripheralClock(SYSCTL_RESOURCE_USB0);
+}
+
+pub fn initUsb0PinsPa24Pa25() void {
+    configurePadFunction(24, IOC_PAD_FUNC_CTL_ANALOG_MASK, 0);
+    configurePadFunction(25, IOC_PAD_FUNC_CTL_ANALOG_MASK, 0);
+    configurePadFunction(448, IOC_FUNC_USB0, 0);
+    configurePadFunction(449, IOC_FUNC_USB0, 0);
+}
+
+pub fn configureGpioPad(pad: usize, pull_up: bool) void {
+    const pull: u32 = if (pull_up) (1 << 8) | (1 << 9) | (1 << 17) else 0;
+    const ctl = (7 << 0) | (3 << 4) | (1 << 12) | pull | (1 << 18);
+    configurePadFunction(pad, 0, ctl);
+}
+
+pub fn assignPinToFastGpio(port: usize, pin: usize) void {
+    gpiom().assign[port].pin[pin] = GPIOM_SELECT_FGPIO | GPIOM_HIDE;
+}
+
+pub fn fastGpio() *volatile Gpio {
+    return @ptrFromInt(FGPIO_BASE);
+}
+
 pub fn delayCycles(cycles: u32) void {
     var i: u32 = 0;
     while (i < cycles) : (i += 1) {
@@ -214,6 +247,10 @@ fn gpio() *volatile Gpio {
     return @ptrFromInt(GPIO0_BASE);
 }
 
+fn gpiom() *volatile Gpiom {
+    return @ptrFromInt(GPIOM_BASE);
+}
+
 fn sysctl() *volatile Sysctl {
     return @ptrFromInt(SYSCTL_BASE);
 }
@@ -244,6 +281,14 @@ const Gpio = extern struct {
     do: [15]GpioPortData,
     reserved1: [16]u8,
     oe: [15]GpioPortData,
+};
+
+const GpiomPort = extern struct {
+    pin: [32]u32,
+};
+
+const Gpiom = extern struct {
+    assign: [15]GpiomPort,
 };
 
 const IocPad = extern struct {
@@ -302,6 +347,7 @@ const Pcfg = extern struct {
 comptime {
     if (@offsetOf(Gpio, "do") != 0x100) @compileError("GPIO DO offset mismatch");
     if (@offsetOf(Gpio, "oe") != 0x200) @compileError("GPIO OE offset mismatch");
+    if (@offsetOf(Gpiom, "assign") != 0) @compileError("GPIOM ASSIGN offset mismatch");
     if (@offsetOf(Sysctl, "group0") != 0x800) @compileError("SYSCTL GROUP0 offset mismatch");
     if (@offsetOf(Sysctl, "affiliate") != 0x900) @compileError("SYSCTL AFFILIATE offset mismatch");
     if (@offsetOf(Sysctl, "clock") != 0x1800) @compileError("SYSCTL CLOCK offset mismatch");

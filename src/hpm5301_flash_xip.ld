@@ -34,15 +34,36 @@ SECTIONS
         *(.text .text.*)
         *(.rodata .rodata.*)
         . = ALIGN(4);
+        __text_end__ = .;
     } > FLASH
+
+    .fast : {
+        . = ALIGN(4);
+        __fast_start__ = .;
+        *(.fast .fast.*)
+        . = ALIGN(4);
+        __fast_end__ = .;
+    } > ILM AT > FLASH
+    __fast_load_start__ = LOADADDR(.fast);
 
     .data : {
         . = ALIGN(4);
+        __data_start__ = .;
         __global_pointer$ = . + 0x800;
         *(.sdata .sdata.*)
         *(.data .data.*)
         . = ALIGN(4);
+        __data_end__ = .;
     } > DLM AT > FLASH
+    __data_load_start__ = LOADADDR(.data);
+
+    .noncacheable (NOLOAD) : {
+        . = ALIGN(2048);
+        __noncacheable_start__ = .;
+        *(.noncacheable .noncacheable.*)
+        . = ALIGN(2048);
+        __noncacheable_end__ = .;
+    } > DLM
 
     .bss (NOLOAD) : {
         . = ALIGN(4);
@@ -71,6 +92,6 @@ SECTIONS
         *(.debug*)
     }
 
-    __fw_size__ = SIZEOF(.text) + SIZEOF(.data);
+    __fw_size__ = SIZEOF(.text) + SIZEOF(.fast) + SIZEOF(.data);
     ASSERT((__app_load_addr__ + __fw_size__) <= (ORIGIN(FLASH) + LENGTH(FLASH)), "FLASH overflow")
 }
