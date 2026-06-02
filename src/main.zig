@@ -101,9 +101,9 @@ fn runDapProbe() noreturn {
     usb.waitConfigured();
     LOG_LED.blink(4);
 
-    const pins = FastGpio.LazyProbePins.init();
-    var probe_swj = FastGpio.LazyProbeSwj.init(pins);
-    var dap = CmsisDap.Dap(FastGpio.LazyProbeSwj).init(&probe_swj);
+    const pins = FastGpio.ProbePins.init();
+    var probe_swj = FastGpio.ProbeSwj.init(pins);
+    var dap = CmsisDap.Dap(FastGpio.ProbeSwj).init(&probe_swj);
 
     while (true) {
         usb.pollSetupAndReset();
