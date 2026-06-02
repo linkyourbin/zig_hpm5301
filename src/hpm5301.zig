@@ -2,6 +2,7 @@ pub const gpio_port_a: usize = 0;
 pub const gpio_port_b: usize = 1;
 
 pub const pad_ctl_i2c_gpio: u32 = (1 << 8) | (1 << 17) | (1 << 18);
+pub const pad_ctl_i2c_hw: u32 = pad_ctl_i2c_gpio;
 pub const pad_ctl_led: u32 = (1 << 17) | (1 << 18) | (1 << 24);
 
 const GPIO0_BASE: usize = 0xF00D0000;
@@ -11,8 +12,16 @@ const PLLCTLV2_BASE: usize = 0xF40C0000;
 const PCFG_BASE: usize = 0xF40C8000;
 
 const SYSCTL_RESOURCE_LINKABLE_START = 256;
+const SYSCTL_RESOURCE_I2C2 = 275;
 const SYSCTL_RESOURCE_GPIO = 305;
+const SYSCTL_RESOURCE_HDMA = 306;
 const SYSCTL_RESOURCE_GPIO_OFFSET = SYSCTL_RESOURCE_GPIO - SYSCTL_RESOURCE_LINKABLE_START;
+const SYSCTL_RESOURCE_CLK_TOP_I2C2 = 80;
+const SYSCTL_CLOCK_CLK_TOP_I2C2 = 15;
+
+const IOC_PAD_FUNC_CTL_LOOP_BACK_MASK: u32 = 1 << 16;
+const IOC_PB08_FUNC_CTL_I2C2_SCL: u32 = 4;
+const IOC_PB09_FUNC_CTL_I2C2_SDA: u32 = 4;
 
 pub const GpioPin = struct {
     pad: usize,
@@ -99,11 +108,7 @@ pub const max_clock_plan = ClockPlan{
 };
 
 pub fn enableGpioClock() void {
-    const s = sysctl();
-    s.group0[SYSCTL_RESOURCE_GPIO_OFFSET / 32].set = 1 << (SYSCTL_RESOURCE_GPIO_OFFSET % 32);
-    s.affiliate[0].set = 1;
-
-    while ((@as(*volatile u32, @ptrFromInt(SYSCTL_BASE + (SYSCTL_RESOURCE_GPIO * 4))).* & 0x40000000) != 0) {}
+    enablePeripheralClock(SYSCTL_RESOURCE_GPIO);
 }
 
 pub fn initMaxClock() ClockPlan {
@@ -133,6 +138,21 @@ pub fn initMaxClock() ClockPlan {
     return max_clock_plan;
 }
 
+pub fn initI2c2PinsPb08Pb09() void {
+    configurePadFunction(40, IOC_PB08_FUNC_CTL_I2C2_SCL | IOC_PAD_FUNC_CTL_LOOP_BACK_MASK, pad_ctl_i2c_hw);
+    configurePadFunction(41, IOC_PB09_FUNC_CTL_I2C2_SDA | IOC_PAD_FUNC_CTL_LOOP_BACK_MASK, pad_ctl_i2c_hw);
+}
+
+pub fn enableI2c2Clock() void {
+    enableClockResource(SYSCTL_RESOURCE_CLK_TOP_I2C2);
+    setClock(SYSCTL_CLOCK_CLK_TOP_I2C2, 0, 1);
+    enablePeripheralClock(SYSCTL_RESOURCE_I2C2);
+}
+
+pub fn enableHdmaClock() void {
+    enablePeripheralClock(SYSCTL_RESOURCE_HDMA);
+}
+
 pub fn delayCycles(cycles: u32) void {
     var i: u32 = 0;
     while (i < cycles) : (i += 1) {
@@ -140,10 +160,28 @@ pub fn delayCycles(cycles: u32) void {
     }
 }
 
+fn enableClockResource(resource: usize) void {
+    const s = sysctl();
+    s.resource[resource] = 1;
+    while ((s.resource[resource] & 0x40000000) != 0) {}
+}
+
+fn enablePeripheralClock(resource: usize) void {
+    const offset = resource - SYSCTL_RESOURCE_LINKABLE_START;
+    const s = sysctl();
+    s.group0[offset / 32].set = @as(u32, 1) << @intCast(offset % 32);
+    s.affiliate[0].set = 1;
+    while ((s.resource[resource] & 0x40000000) != 0) {}
+}
+
 fn configurePad(pin: GpioPin) void {
+    configurePadFunction(pin.pad, 0, pin.pad_ctl);
+}
+
+fn configurePadFunction(pad: usize, func_ctl: u32, pad_ctl: u32) void {
     const pads: *volatile [456]IocPad = @ptrFromInt(IOC_BASE);
-    pads[pin.pad].func_ctl = 0;
-    pads[pin.pad].pad_ctl = pin.pad_ctl;
+    pads[pad].func_ctl = func_ctl;
+    pads[pad].pad_ctl = pad_ctl;
 }
 
 fn setClock(node: usize, mux: u32, divide_by: u32) void {

@@ -1,28 +1,13 @@
 const hpm = @import("hpm5301.zig");
-const I2c = @import("i2c_bitbang.zig");
+const I2c = @import("i2c_hw.zig");
 const Ssd1306 = @import("ssd1306.zig");
 
 const STARTUP_DELAY: u32 = 1_000_000;
 const FRAME_DELAY: u32 = 8_000_000;
 const LOG_DELAY: u32 = 500_000;
-const I2C_DELAY: u32 = 80;
 
 const APP_LOAD_ADDR: u32 = 0x80003000;
 const APP_OFFSET: u32 = APP_LOAD_ADDR - 0x80001000;
-
-const I2C_SCL = hpm.GpioPin{
-    .pad = 40,
-    .port = hpm.gpio_port_b,
-    .pin = 8,
-    .pad_ctl = hpm.pad_ctl_i2c_gpio,
-}; // J3-5, PB08
-
-const I2C_SDA = hpm.GpioPin{
-    .pad = 41,
-    .port = hpm.gpio_port_b,
-    .pin = 9,
-    .pad_ctl = hpm.pad_ctl_i2c_gpio,
-}; // J3-3, PB09
 
 const LOG_LED = hpm.Led{
     .pin = .{
@@ -35,9 +20,7 @@ const LOG_LED = hpm.Led{
 };
 
 const OLED_I2C = I2c.Bus{
-    .scl = I2C_SCL,
-    .sda = I2C_SDA,
-    .delay_cycles = I2C_DELAY,
+    .dma_enabled = true,
 };
 
 const BootHeader = extern struct {
@@ -127,13 +110,16 @@ export fn zig_main() noreturn {
 
 fn initBoard() void {
     hpm.enableGpioClock();
-    OLED_I2C.init();
     LOG_LED.init();
+    LOG_LED.blink(1);
+    OLED_I2C.init();
+    LOG_LED.blink(2);
     hpm.delayCycles(STARTUP_DELAY);
 }
 
 fn runOledAt(addr: u8, success_blinks: u32) void {
-    const display = Ssd1306.Display{
+    const Display = Ssd1306.Display(I2c.Bus);
+    const display = Display{
         .bus = OLED_I2C,
         .addr = addr,
     };
