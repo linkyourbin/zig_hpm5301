@@ -543,14 +543,11 @@ fn swdDelayForHz(hz: u32) u8 {
     if (hz <= 1_000_000) return 24;
     if (hz <= 2_000_000) return 10;
     if (hz <= 3_000_000) return 7;
-    if (hz <= 4_000_000) return 5;
-    if (hz <= 8_000_000) return 3;
-    if (hz <= 20_000_000) return 2;
-    return 1;
+    return 5;
 }
 
 fn swdWriteDelayForHz(hz: u32) u8 {
-    return if (hz > 8_000_000) 1 else swdDelayForHz(hz);
+    return swdDelayForHz(hz);
 }
 
 fn readLe32(bytes: []const u8) u32 {

@@ -3,7 +3,7 @@ set -euo pipefail
 
 CHIP="${CHIP:-STM32F405RG}"
 PROTOCOL="${PROTOCOL:-swd}"
-SPEED="${SPEED:-3200}"
+SPEED="${SPEED:-20000}"
 PROBE="${PROBE:-1209:5301}"
 ELF="${1:-app.elf}"
 OVERRIDE="${OVERRIDE:-target-overrides/STM32F4_Series_f405_page_32k.yaml}"
