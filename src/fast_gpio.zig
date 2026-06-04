@@ -119,7 +119,7 @@ pub const ProbePins = struct {
 
     pub inline fn swdWriteBits(self: *ProbePins, bits_in: u32, count: usize) void {
         var bits = bits_in;
-        const delay = self.write_half_period_delay;
+        const delay = self.half_period_delay;
         var output = self.output_a;
         var i: usize = 0;
         while (i < count) : (i += 1) {
@@ -140,11 +140,6 @@ pub const ProbePins = struct {
 
     pub inline fn swdWriteDataBits(self: *ProbePins, bits_in: u32, count: usize) void {
         const delay = self.write_half_period_delay;
-        if (delay != 1) {
-            self.swdWriteBits(bits_in, count);
-            return;
-        }
-
         var bits = bits_in;
         var output = self.output_a;
         var i: usize = 0;
@@ -247,8 +242,8 @@ pub const ProbePins = struct {
                     0b001 => {
                         self.swclkCycle();
                         self.swdioOutput();
-                        self.swdWriteBits(write_data, 32);
-                        self.swdWriteBits(parity, 1);
+                        self.swdWriteDataBits(write_data, 32);
+                        self.swdWriteDataBits(parity, 1);
                         self.setSwdioTms(true);
                         break;
                     },
@@ -290,8 +285,8 @@ pub const ProbePins = struct {
             0b001 => {
                 self.swclkCycle();
                 self.swdioOutput();
-                self.swdWriteBits(write_data, 32);
-                self.swdWriteBits(if (swj.oddParity(write_data)) 1 else 0, 1);
+                self.swdWriteDataBits(write_data, 32);
+                self.swdWriteDataBits(if (swj.oddParity(write_data)) 1 else 0, 1);
                 self.setSwdioTms(true);
                 return .ok;
             },
@@ -547,6 +542,7 @@ fn swdDelayForHz(hz: u32) u8 {
 }
 
 fn swdWriteDelayForHz(hz: u32) u8 {
+    if (hz > 3_000_000) return 7;
     return swdDelayForHz(hz);
 }
 

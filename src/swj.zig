@@ -135,8 +135,8 @@ pub fn Swj(comptime PinsType: type) type {
 
                     self.turnaround();
                     self.pins.swdioOutput();
-                    self.pins.swdWriteBits(write_data, 32);
-                    self.pins.swdWriteBits(if (oddParity(write_data)) 1 else 0, 1);
+                    self.pins.swdWriteDataBits(write_data, 32);
+                    self.pins.swdWriteDataBits(if (oddParity(write_data)) 1 else 0, 1);
                     self.idle();
                     return .{ .status = .ok };
                 },
@@ -205,8 +205,8 @@ pub fn Swj(comptime PinsType: type) type {
                 0b001 => {
                     self.turnaround();
                     self.pins.swdioOutput();
-                    self.pins.swdWriteBits(write_data, 32);
-                    self.pins.swdWriteBits(if (oddParity(write_data)) 1 else 0, 1);
+                    self.pins.swdWriteDataBits(write_data, 32);
+                    self.pins.swdWriteDataBits(if (oddParity(write_data)) 1 else 0, 1);
                     self.idle();
                     return .ok;
                 },
