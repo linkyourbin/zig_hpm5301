@@ -3,20 +3,8 @@ const Usb = @import("usb_hs.zig");
 const FastGpio = @import("fast_gpio.zig");
 const CmsisDap = @import("cmsis_dap.zig");
 
-const LOG_DELAY: u32 = 500_000;
-
 const APP_LOAD_ADDR: u32 = 0x80003000;
 const APP_OFFSET: u32 = APP_LOAD_ADDR - 0x80001000;
-
-const LOG_LED = hpm.Led{
-    .pin = .{
-        .pad = 10,
-        .port = hpm.gpio_port_a,
-        .pin = 10,
-        .pad_ctl = hpm.pad_ctl_led,
-    },
-    .delay_cycles = LOG_DELAY,
-};
 
 const BootHeader = extern struct {
     tag: u8,
@@ -90,16 +78,11 @@ export fn zig_main() noreturn {
 
 fn runDapProbe() noreturn {
     hpm.enableGpioClock();
-    LOG_LED.init();
-    LOG_LED.blink(1);
     _ = hpm.initMaxClock();
-    LOG_LED.blink(2);
 
     var usb = Usb.Device{};
     usb.init();
-    LOG_LED.blink(3);
     usb.waitConfigured();
-    LOG_LED.blink(4);
 
     const pins = FastGpio.ProbePins.init();
     var probe_swj = FastGpio.ProbeSwj.init(pins);

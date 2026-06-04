@@ -3,6 +3,10 @@ const swj = @import("swj.zig");
 
 const port_a: usize = 0;
 const port_b: usize = 1;
+const fgpio_base: usize = 0x000c_0000;
+const fgpio_do_base: usize = 0x100;
+const fgpio_oe_base: usize = 0x200;
+const fgpio_port_stride: usize = 0x10;
 
 const pin_tdo: u5 = 26;
 const pin_swclk_tck: u5 = 27;
@@ -354,7 +358,33 @@ pub const ProbePins = struct {
         self.swdWriteBits(swd_request, 8);
         self.swdioInput();
         self.swclkCycle();
-        return self.swclkSampleSwdio3Bits();
+        return self.sampleAck3();
+    }
+
+    inline fn sampleAck3(self: *ProbePins) u8 {
+        const delay = self.half_period_delay;
+        var value: u8 = 0;
+
+        doClear(port_a, swclk_tck);
+        delayHalfCount(delay);
+        if ((readDi(port_a) & swdio_tms) != 0) value |= 1;
+        doSet(port_a, swclk_tck);
+        delayHalfCount(delay);
+
+        doClear(port_a, swclk_tck);
+        delayHalfCount(delay);
+        if ((readDi(port_a) & swdio_tms) != 0) value |= 2;
+        doSet(port_a, swclk_tck);
+        delayHalfCount(delay);
+
+        doClear(port_a, swclk_tck);
+        delayHalfCount(delay);
+        if ((readDi(port_a) & swdio_tms) != 0) value |= 4;
+        doSet(port_a, swclk_tck);
+        delayHalfCount(delay);
+
+        self.output_a |= swclk_tck;
+        return value;
     }
 
     inline fn finishProtocolErrorFast(self: *ProbePins) void {
@@ -531,25 +561,25 @@ fn readLe32(bytes: []const u8) u32 {
 }
 
 inline fn readDi(port: usize) u32 {
-    return hpm.fastGpio().di[port].value;
+    return @as(*volatile u32, @ptrFromInt(fgpio_base + port * fgpio_port_stride)).*;
 }
 
 inline fn writeDo(port: usize, value: u32) void {
-    hpm.fastGpio().do[port].value = value;
+    @as(*volatile u32, @ptrFromInt(fgpio_base + fgpio_do_base + port * fgpio_port_stride)).* = value;
 }
 
 inline fn doSet(port: usize, mask: u32) void {
-    hpm.fastGpio().do[port].set = mask;
+    @as(*volatile u32, @ptrFromInt(fgpio_base + fgpio_do_base + 4 + port * fgpio_port_stride)).* = mask;
 }
 
 inline fn doClear(port: usize, mask: u32) void {
-    hpm.fastGpio().do[port].clear = mask;
+    @as(*volatile u32, @ptrFromInt(fgpio_base + fgpio_do_base + 8 + port * fgpio_port_stride)).* = mask;
 }
 
 inline fn oeSet(port: usize, mask: u32) void {
-    hpm.fastGpio().oe[port].set = mask;
+    @as(*volatile u32, @ptrFromInt(fgpio_base + fgpio_oe_base + 4 + port * fgpio_port_stride)).* = mask;
 }
 
 inline fn oeClear(port: usize, mask: u32) void {
-    hpm.fastGpio().oe[port].clear = mask;
+    @as(*volatile u32, @ptrFromInt(fgpio_base + fgpio_oe_base + 8 + port * fgpio_port_stride)).* = mask;
 }

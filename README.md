@@ -4,13 +4,14 @@ Bare-metal Zig firmware for HPM5301IEG1.
 
 The active firmware is a first Zig CMSIS-DAP v2 probe implementation. It brings up
 USB0 high speed, exposes a vendor CMSIS-DAP bulk interface, and drives SWD through
-HPM5301 FGPIO pins. PA10 is kept as a debug LED during boot.
+HPM5301 FGPIO pins.
 
 ## Current Status
 
 - CPU clock: 360 MHz
 - USB: USB0 high-speed device, CMSIS-DAP v2 style bulk endpoints
 - SWD backend: FGPIO bit-banged PA27/PA28
+- Current USB serial string: `YBLINK-ZIG-0051-ACK3`
 - Build output: `zig-out/bin/zig_hpm5301_dap`
 
 ## Pin Map
@@ -60,7 +61,7 @@ probe-rs list
 Expected USB identity:
 
 ```text
-YBLINK CMSIS-DAP -- 1209:5301-0:YBLINK
+YBLINK CMSIS-DAP -- 1209:5301-0:YBLINK-ZIG-0051-ACK3
 ```
 
 Then try a target over SWD:
@@ -68,6 +69,17 @@ Then try a target over SWD:
 ```sh
 probe-rs info --probe 1209:5301:YBLINK --chip STM32F405RG --protocol swd --speed 1000000 --non-interactive
 ```
+
+Fast STM32F405RG download test:
+
+```sh
+./download_stm32f405_fast.sh app.elf
+```
+
+This uses `target-overrides/STM32F4_Series_f405_page_32k.yaml`, which keeps the
+stock probe-rs STM32F4 flash algorithm but changes the 1 MiB flash page size
+from 1 KiB to 32 KiB. That reduces program-page calls from 1024 to 32 and avoids
+the main host/flash-algorithm overhead seen in the stock command.
 
 ## Source Layout
 
@@ -78,3 +90,4 @@ probe-rs info --probe 1209:5301:YBLINK --chip STM32F405RG --protocol swd --speed
 - `src/swj.zig`: SWD/SWJ protocol engine
 - `src/fast_gpio.zig`: direct FGPIO SWD pin backend
 - `src/hpm5301_flash_xip.ld`: XIP flash linker script with `.fast` and `.noncacheable`
+- `target-overrides/`: optional probe-rs target descriptions for benchmarks

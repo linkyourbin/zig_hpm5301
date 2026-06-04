@@ -38,6 +38,7 @@ const transfer_request_value_match: u8 = 1 << 4;
 const transfer_request_match_mask: u8 = 1 << 5;
 const dp_rdbuff_read: u8 = transfer_request_rnw | (1 << 2) | (1 << 3);
 const check_posted_writes = true;
+const check_block_posted_writes = false;
 
 pub fn Dap(comptime SwjType: type) type {
     return struct {
@@ -121,10 +122,7 @@ pub fn Dap(comptime SwjType: type) type {
                 };
                 if (input + request_len > request.len) break;
 
-                var sub_response: [packet_size]u8 = undefined;
-                const response_len = self.process(request[input .. input + request_len], sub_response[0..]);
-                if (output + response_len > response.len) break;
-                for (sub_response[0..response_len], 0..) |byte, n| response[output + n] = byte;
+                const response_len = self.process(request[input .. input + request_len], response[output..]);
                 input += request_len;
                 output += response_len;
                 executed += 1;
@@ -385,7 +383,7 @@ pub fn Dap(comptime SwjType: type) type {
                 const result = self.swj.swdWriteBlock(transfer_request, payload, count, self.wait_retries);
                 status = transferStatus(result.status);
                 completed = result.done;
-                if (status == dap_transfer_ok and check_posted_writes) {
+                if (status == dap_transfer_ok and check_block_posted_writes) {
                     const check = self.retryTransfer(dp_rdbuff_read, 0);
                     status = transferStatus(check.status);
                 }
