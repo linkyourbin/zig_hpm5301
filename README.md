@@ -81,6 +81,11 @@ stock probe-rs STM32F4 flash algorithm but changes the 1 MiB flash page size
 from 1 KiB to 32 KiB. That reduces program-page calls from 1024 to 32 and avoids
 the main host/flash-algorithm overhead seen in the stock command.
 
+The script defaults to `SPEED=3200` because this firmware's measured large-block
+write throughput peaks there. On STM32F405RG with `app.elf`, `YBLINK-ZIG-0053-PKT4096A`
+finished the 32 KiB override download in 44.21 s at 3200 kHz, versus 55.76 s at
+20000 kHz.
+
 ## Source Layout
 
 - `src/main.zig`: boot metadata, runtime section init, DAP probe app
