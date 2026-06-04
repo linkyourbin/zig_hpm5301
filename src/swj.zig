@@ -33,6 +33,11 @@ pub const WriteBlockResult = struct {
     done: usize,
 };
 
+pub const ReadBlockResult = struct {
+    status: TransferStatus,
+    done: usize,
+};
+
 pub fn Swj(comptime PinsType: type) type {
     return struct {
         const Self = @This();
@@ -201,6 +206,33 @@ pub fn Swj(comptime PinsType: type) type {
             return .{ .status = .ok, .done = done };
         }
 
+        pub fn swdReadBlock(self: *Self, request: u8, out: []u8, count: usize, wait_retries: usize) ReadBlockResult {
+            if (self.canUseFastPath()) {
+                return self.pins.swdReadBlockFast(makeSwdRequest(request), out, count, wait_retries);
+            }
+
+            var done: usize = 0;
+            var output: usize = 0;
+
+            while (done < count) {
+                if (output + 4 > out.len) return .{ .status = .protocol_error, .done = done };
+                var retry = wait_retries;
+                while (true) {
+                    const result = self.swdTransfer(request, 0);
+                    if (result.status != .wait or retry == 0) {
+                        if (result.status != .ok) return .{ .status = result.status, .done = done };
+                        writeLe32(out[output .. output + 4], result.data);
+                        break;
+                    }
+                    retry -= 1;
+                }
+                output += 4;
+                done += 1;
+            }
+
+            return .{ .status = .ok, .done = done };
+        }
+
         fn swdWriteTransferPrecomputed(self: *Self, swd_request: u8, write_data: u32) TransferStatus {
             self.pins.swdioOutput();
             self.pins.swdWriteBits(swd_request, 8);
@@ -323,4 +355,11 @@ fn readLe32(bytes: []const u8) u32 {
         (@as(u32, bytes[1]) << 8) |
         (@as(u32, bytes[2]) << 16) |
         (@as(u32, bytes[3]) << 24);
+}
+
+fn writeLe32(out: []u8, value: u32) void {
+    out[0] = @intCast(value & 0xff);
+    out[1] = @intCast((value >> 8) & 0xff);
+    out[2] = @intCast((value >> 16) & 0xff);
+    out[3] = @intCast((value >> 24) & 0xff);
 }

@@ -278,6 +278,32 @@ pub const ProbePins = struct {
         return .{ .status = .ok, .done = done };
     }
 
+    pub inline fn swdReadBlockFast(self: *ProbePins, swd_request: u8, out: []u8, count: usize, wait_retries: usize) swj.ReadBlockResult {
+        self.swdioOutput();
+        var done: usize = 0;
+        var output: usize = 0;
+
+        while (done < count) {
+            if (output + 4 > out.len) return .{ .status = .protocol_error, .done = done };
+            var retry = wait_retries;
+
+            while (true) {
+                const result = self.swdReadTransferFast(swd_request);
+                if (result.status != .wait or retry == 0) {
+                    if (result.status != .ok) return .{ .status = result.status, .done = done };
+                    writeLe32(out[output .. output + 4], result.data);
+                    break;
+                }
+                retry -= 1;
+            }
+
+            output += 4;
+            done += 1;
+        }
+
+        return .{ .status = .ok, .done = done };
+    }
+
     pub inline fn swdWriteTransferFast(self: *ProbePins, swd_request: u8, write_data: u32) swj.TransferStatus {
         self.swdioOutput();
         const ack = self.swdWriteRequestReadAck(swd_request);
@@ -486,6 +512,10 @@ pub const LazyProbePins = struct {
         return self.ensure().swdWriteBlockFast(swd_request, data, count, wait_retries);
     }
 
+    pub inline fn swdReadBlockFast(self: *LazyProbePins, swd_request: u8, out: []u8, count: usize, wait_retries: usize) swj.ReadBlockResult {
+        return self.ensure().swdReadBlockFast(swd_request, out, count, wait_retries);
+    }
+
     pub inline fn swdWriteTransferFast(self: *LazyProbePins, swd_request: u8, write_data: u32) swj.TransferStatus {
         return self.ensure().swdWriteTransferFast(swd_request, write_data);
     }
@@ -551,6 +581,13 @@ fn readLe32(bytes: []const u8) u32 {
         (@as(u32, bytes[1]) << 8) |
         (@as(u32, bytes[2]) << 16) |
         (@as(u32, bytes[3]) << 24);
+}
+
+fn writeLe32(out: []u8, value: u32) void {
+    out[0] = @intCast(value & 0xff);
+    out[1] = @intCast((value >> 8) & 0xff);
+    out[2] = @intCast((value >> 16) & 0xff);
+    out[3] = @intCast((value >> 24) & 0xff);
 }
 
 inline fn readDi(port: usize) u32 {

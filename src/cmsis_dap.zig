@@ -353,7 +353,7 @@ pub fn Dap(comptime SwjType: type) type {
             } else if ((transfer_request & (transfer_request_value_match | transfer_request_match_mask)) != 0) {
                 status = dap_transfer_error;
             } else if (read) {
-                var request_value = transfer_request;
+                const request_value = transfer_request;
                 if ((request_value & transfer_request_apndp) != 0) {
                     const result = self.retryTransfer(request_value, 0);
                     status = transferStatus(result.status);
@@ -364,20 +364,40 @@ pub fn Dap(comptime SwjType: type) type {
                     }
                 }
 
-                while (completed < count) {
-                    if (completed + 1 == count and (transfer_request & transfer_request_apndp) != 0) {
-                        request_value = dp_rdbuff_read;
+                if ((transfer_request & transfer_request_apndp) != 0) {
+                    if (count > 1) {
+                        const ap_count = @as(usize, count) - 1;
+                        const bytes = ap_count * 4;
+                        if (rsp_index + bytes > response.len) {
+                            status = dap_transfer_error;
+                        } else {
+                            const block = self.swj.swdReadBlock(request_value, response[rsp_index .. rsp_index + bytes], ap_count, self.wait_retries);
+                            status = transferStatus(block.status);
+                            completed += block.done;
+                            rsp_index += block.done * 4;
+                        }
                     }
-                    const result = self.retryTransfer(request_value, 0);
-                    status = transferStatus(result.status);
-                    if (status != dap_transfer_ok) break;
-                    if (rsp_index + 4 > response.len) {
+                    if (status == dap_transfer_ok) {
+                        const result = self.retryTransfer(dp_rdbuff_read, 0);
+                        status = transferStatus(result.status);
+                        if (status == dap_transfer_ok and rsp_index + 4 <= response.len) {
+                            writeLe32(response[rsp_index .. rsp_index + 4], result.data);
+                            rsp_index += 4;
+                            completed += 1;
+                        } else if (status == dap_transfer_ok) {
+                            status = dap_transfer_error;
+                        }
+                    }
+                } else {
+                    const bytes = @as(usize, count) * 4;
+                    if (rsp_index + bytes > response.len) {
                         status = dap_transfer_error;
-                        break;
+                    } else {
+                        const block = self.swj.swdReadBlock(request_value, response[rsp_index .. rsp_index + bytes], count, self.wait_retries);
+                        status = transferStatus(block.status);
+                        completed = block.done;
+                        rsp_index += block.done * 4;
                     }
-                    writeLe32(response[rsp_index .. rsp_index + 4], result.data);
-                    rsp_index += 4;
-                    completed += 1;
                 }
             } else {
                 const payload = request[5..];
