@@ -1,3 +1,4 @@
+const hpm = @import("hpm5301.zig");
 const swj_mod = @import("swj.zig");
 
 pub const packet_size: usize = 4096;
@@ -573,7 +574,7 @@ fn transferStatus(status: swj_mod.TransferStatus) u8 {
 }
 
 fn delayMicros(us_in: u32) void {
-    spinDelay(@min(us_in, 3_000_000) * 72);
+    hpm.delayMicros(us_in);
 }
 
 fn commandRequestLen(request: []const u8) ?usize {
@@ -655,7 +656,3 @@ fn transferBlockRequestLen(request: []const u8) ?usize {
     return if (request.len >= len) len else null;
 }
 
-fn spinDelay(cycles: u32) void {
-    var i: u32 = 0;
-    while (i < cycles) : (i += 1) asm volatile ("nop");
-}

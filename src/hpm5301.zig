@@ -167,6 +167,19 @@ pub fn delayCycles(cycles: u32) void {
     }
 }
 
+pub fn delayMicros(us_in: u32) void {
+    const us = @min(us_in, 3_000_000);
+    const ticks = us * (max_clock_plan.cpu0_hz / 1_000_000);
+    const start = coreCycle32();
+    while (coreCycle32() -% start < ticks) {}
+}
+
+inline fn coreCycle32() u32 {
+    return asm volatile ("csrr %[value], cycle"
+        : [value] "=r" (-> u32),
+    );
+}
+
 fn enablePeripheralClock(resource: usize) void {
     const offset = resource - SYSCTL_RESOURCE_LINKABLE_START;
     const s = sysctl();

@@ -350,7 +350,7 @@ pub const ProbePins = struct {
     }
 
     inline fn swdWriteRequestReadAck(self: *ProbePins, swd_request: u8) u8 {
-        self.swdWriteBits(swd_request, 8);
+        self.swdWriteDataBits(swd_request, 8);
         self.swdioInput();
         self.swclkCycle();
         return self.sampleAck3();

@@ -11,7 +11,7 @@ HPM5301 FGPIO pins.
 - CPU clock: 360 MHz
 - USB: USB0 high-speed device, CMSIS-DAP v2 style bulk endpoints
 - SWD backend: FGPIO bit-banged PA27/PA28
-- Current USB serial string: `YBLINK-ZIG-0058-READ7DATA6`
+- Current USB serial string: `YBLINK-ZIG-0061-CYCLEDLY`
 - Build output: `zig-out/bin/zig_hpm5301_dap`
 
 ## Pin Map
@@ -61,7 +61,7 @@ probe-rs list
 Expected USB identity:
 
 ```text
-YBLINK CMSIS-DAP -- 1209:5301-0:YBLINK-ZIG-0058-READ7DATA6
+YBLINK CMSIS-DAP -- 1209:5301-0:YBLINK-ZIG-0061-CYCLEDLY
 ```
 
 Then try a target over SWD:
@@ -81,10 +81,11 @@ stock probe-rs STM32F4 flash algorithm but changes the 1 MiB flash page size
 from 1 KiB to 32 KiB. That reduces program-page calls from 1024 to 32 and avoids
 the main host/flash-algorithm overhead seen in the stock command.
 
-`YBLINK-ZIG-0058-READ7DATA6` uses separate timing for general SWD request/read
-cycles and the SWD data write phase. On STM32F405RG with `app.elf` at requested
-20000 kHz, the stock target description finished in 39.18 s, and the 32 KiB
-override finished in 23.04 s.
+`YBLINK-ZIG-0061-CYCLEDLY` uses direct fast paths for normal SWD transfers,
+faster request-phase block writes, and cycle-counter based CMSIS-DAP delays. On
+STM32F405RG with `app.elf` at requested 20000 kHz, the stock target description
+finished in 35.82 s. Raw 32 KiB SRAM benchmark was about 45.9 KiB/s read and
+76.2 KiB/s write.
 
 ## Source Layout
 

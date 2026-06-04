@@ -112,6 +112,13 @@ pub fn Swj(comptime PinsType: type) type {
             const rn_w = (request & 0x02) != 0;
             const swd_request = makeSwdRequest(request);
 
+            if (self.canUseFastPath()) {
+                if (rn_w) {
+                    return self.pins.swdReadTransferFast(swd_request);
+                }
+                return .{ .status = self.pins.swdWriteTransferFast(swd_request, write_data) };
+            }
+
             self.pins.swdioOutput();
             self.pins.swdWriteBits(swd_request, 8);
 
