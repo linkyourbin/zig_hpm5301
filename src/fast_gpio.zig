@@ -538,7 +538,7 @@ fn swdDelayForHz(hz: u32) u8 {
     if (hz <= 1_000_000) return 24;
     if (hz <= 2_000_000) return 10;
     if (hz <= 3_000_000) return 7;
-    return 8;
+    return 7;
 }
 
 fn swdWriteDelayForHz(hz: u32) u8 {
