@@ -1,7 +1,7 @@
 const hpm = @import("hpm5301.zig");
 
 pub const usb_max_packet: usize = 512;
-pub const dap_packet: usize = 1024;
+pub const dap_packet: usize = 4096;
 
 const USB_BASE: usize = 0xF300C000;
 
@@ -488,7 +488,7 @@ const bos_descriptor = [_]u8{
 const string0 = [_]u8{ 4, 3, 0x09, 0x04 };
 const string1 = utf16String("YBLINK");
 const string2 = utf16String("YBLINK CMSIS-DAP");
-const string3 = utf16String("YBLINK-ZIG-0052-NOBLKCHK");
+const string3 = utf16String("YBLINK-ZIG-0053-PKT4096A");
 const string4 = utf16String("YBLINK CMSIS-DAP");
 const string5 = utf16String("YBLINK Auxiliary Interface");
 const string_msft100 = [_]u8{

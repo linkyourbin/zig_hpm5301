@@ -1,6 +1,6 @@
 const swj_mod = @import("swj.zig");
 
-pub const packet_size: usize = 1024;
+pub const packet_size: usize = 4096;
 pub const packet_count: u8 = 1;
 
 const cmd_dap_info: u8 = 0x00;
