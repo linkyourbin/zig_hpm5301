@@ -6,14 +6,6 @@ The active firmware is a first Zig CMSIS-DAP v2 probe implementation. It brings 
 USB0 high speed, exposes a vendor CMSIS-DAP bulk interface, and drives SWD through
 HPM5301 FGPIO pins.
 
-## Current Status
-
-- CPU clock: 360 MHz
-- USB: USB0 high-speed device, CMSIS-DAP v2 style bulk endpoints
-- SWD backend: FGPIO bit-banged PA27/PA28
-- Current USB serial string: `YBLINK-ZIG-0062-RDBLOCK`
-- Build output: `zig-out/bin/zig_hpm5301_dap`
-
 ## Pin Map
 
 | Probe signal | HPM5301 pin | J3 pin | Target signal |
@@ -30,62 +22,16 @@ Optional JTAG pins are reserved for the next step:
 | TDO | PA26 | 24 |
 | TDI | PA29 | 19 |
 
-USB0 uses the board USB connector through PA24/PA25.
-
 ## Build
 
 ```sh
 zig build
-```
 
 ## Flash
 
 ```sh
-./flash.sh
-```
-
-The script builds first, then downloads:
-
-```sh
 probe-rs download --chip HPM5301 --protocol jtag --speed 20000 --binary-format elf zig-out/bin/zig_hpm5301_dap
 ```
-
-## Smoke Test
-
-After flashing and reconnecting USB, check enumeration:
-
-```sh
-probe-rs list
-```
-
-Expected USB identity:
-
-```text
-YBLINK CMSIS-DAP -- 1209:5301-0:YBLINK-ZIG-0062-RDBLOCK
-```
-
-Then try a target over SWD:
-
-```sh
-probe-rs info --probe 1209:5301:YBLINK --chip STM32F405RG --protocol swd --speed 1000000 --non-interactive
-```
-
-Fast STM32F405RG download test:
-
-```sh
-./download_stm32f405_fast.sh app.elf
-```
-
-This uses `target-overrides/STM32F4_Series_f405_page_32k.yaml`, which keeps the
-stock probe-rs STM32F4 flash algorithm but changes the 1 MiB flash page size
-from 1 KiB to 32 KiB. That reduces program-page calls from 1024 to 32 and avoids
-the main host/flash-algorithm overhead seen in the stock command.
-
-`YBLINK-ZIG-0062-RDBLOCK` uses direct fast paths for normal SWD transfers,
-faster request-phase block writes, direct block reads, and cycle-counter based
-CMSIS-DAP delays. On STM32F405RG with `app.elf` at requested 20000 kHz, the
-stock target description finished in 35.76 s. Raw 32 KiB SRAM benchmark was
-about 54.8 KiB/s read and 76.7 KiB/s write.
 
 ## Source Layout
 
@@ -96,4 +42,3 @@ about 54.8 KiB/s read and 76.7 KiB/s write.
 - `src/swj.zig`: SWD/SWJ protocol engine
 - `src/fast_gpio.zig`: direct FGPIO SWD pin backend
 - `src/hpm5301_flash_xip.ld`: XIP flash linker script with `.fast` and `.noncacheable`
-- `target-overrides/`: optional probe-rs target descriptions for benchmarks
