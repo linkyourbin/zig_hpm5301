@@ -26,6 +26,7 @@ Optional JTAG pins are reserved for the next step:
 
 ```sh
 zig build
+```
 
 ## Flash
 
